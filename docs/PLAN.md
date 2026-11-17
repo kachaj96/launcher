@@ -117,6 +117,12 @@ Odstępstwa od planu:
 - Strona „Kalendarz” pokazuje widżet wybrany w ustawieniach (domyślnie widżety aplikacji Kalendarz, `com.kachaj96.kalendarz`: Najbliższe, Dziś, Tydzień, Miesiąc) albo wbudowaną kartę z kalendarza telefonu.
 - Widżet jest hostowany bez ramki. Wygląd (przezroczystość, kolor tekstu) ustawia aplikacja Kalendarz.
 
+## Wyszukiwarka Brave (17 listopada 2026)
+
+- Pasek „Szukaj w Brave” nad strzałką szuflady (wariant A z mockupu). Po stuknięciu ekran się przyciemnia, pasek wjeżdża nad klawiaturę.
+- Strzałka albo Enter otwiera `search.brave.com` w aplikacji Brave (`com.brave.browser`), a bez niej w domyślnej przeglądarce.
+- Ikona aparatu: stuknięcie otwiera Aparat, przytrzymanie Google Lens.
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

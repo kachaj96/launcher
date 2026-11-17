@@ -2,7 +2,14 @@ package com.adrian.launcher.home
 
 import android.graphics.Rect
 import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -84,6 +91,9 @@ class HomeActions(
     val onOpenSettings: () -> Unit,
     val onRequestDefault: () -> Unit,
     val onRequestCalendar: () -> Unit,
+    val onWebSearch: (String) -> Unit,
+    val onCamera: () -> Unit,
+    val onLens: () -> Unit,
 )
 
 private enum class DragAxis { NONE, HORIZONTAL, UP, DOWN }
@@ -113,6 +123,12 @@ fun HomeScreen(
     val now by rememberNow()
     val battery by rememberBatteryLevel()
     val haptics = LocalHapticFeedback.current
+    val focusManager = LocalFocusManager.current
+    var query by rememberSaveable { mutableStateOf("") }
+    var searchFocused by remember { mutableStateOf(false) }
+    BackHandler(enabled = searchFocused) { focusManager.clearFocus() }
+    // Opening the drawer or going to an app ends the search.
+    LaunchedEffect(resetSignal) { focusManager.clearFocus() }
 
     val homePage = pages.indexOf(PageId.CLOCK).coerceAtLeast(0)
     val pagerState = rememberPagerState(initialPage = homePage) { pages.size }
@@ -155,7 +171,7 @@ fun HomeScreen(
                 }
                 .systemBarsPadding(),
         ) {
-            val carouselHeight = maxHeight * 0.46f
+            val carouselHeight = maxHeight * 0.42f
             Column(modifier = Modifier.fillMaxSize()) {
                 // Paging is driven by homeGestures for the whole screen height.
                 HorizontalPager(
@@ -211,15 +227,62 @@ fun HomeScreen(
                     )
                 }
 
+                // Room for the search pill, which is drawn as an overlay so it can rise with the keyboard.
+                Spacer(Modifier.height((SEARCH_PILL_HEIGHT_DP + 8).dp))
+
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
                         .size(48.dp)
-                        .bouncyClick(pressedScale = 0.85f) { actions.onOpenDrawer() },
+                        .bouncyClick(pressedScale = 0.85f) {
+                            focusManager.clearFocus()
+                            actions.onOpenDrawer()
+                        },
                 ) {
                     Chevron(pointsUp = true, color = Color(0xFF9A9A9A))
                 }
+            }
+
+            // While typing: dim the screen; a tap outside the pill ends the search.
+            val scrim by animateFloatAsState(if (searchFocused) 0.6f else 0f, Springs.soft(), label = "scrim")
+            if (scrim > 0.01f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = scrim))
+                        .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } },
+                )
+            }
+
+            val pillBottom by animateDpAsState(if (searchFocused) 12.dp else 56.dp, Springs.soft(), label = "pill")
+            Box(modifier = Modifier.fillMaxSize().imePadding()) {
+                SearchPill(
+                    query = query,
+                    onQueryChange = { query = it },
+                    focused = searchFocused,
+                    onFocusChange = { searchFocused = it },
+                    accent = accent,
+                    onSearch = {
+                        val q = query.trim()
+                        if (q.isNotEmpty()) {
+                            actions.onWebSearch(q)
+                            query = ""
+                            focusManager.clearFocus()
+                        }
+                    },
+                    onCamera = {
+                        focusManager.clearFocus()
+                        actions.onCamera()
+                    },
+                    onLens = {
+                        focusManager.clearFocus()
+                        actions.onLens()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 20.dp, end = 20.dp, bottom = pillBottom),
+                )
             }
         }
     }
@@ -258,7 +321,13 @@ private fun Modifier.homeGestures(pagerState: PagerState, actions: HomeActions):
                     val v = tracker.calculateVelocity()
                     when (axis) {
                         DragAxis.HORIZONTAL -> scope.launch { settlePager(pagerState, v.x) }
-                        DragAxis.UP -> currentActions.onDrawerDragEnd(v.y)
+                        DragAxis.UP -> {
+                            // A very short flick gives the tracker too few samples; fall back
+                            // to the average speed of the whole gesture.
+                            val elapsedMs = (change.uptimeMillis - down.uptimeMillis).coerceAtLeast(1L)
+                            val average = totalY / elapsedMs * 1000f
+                            currentActions.onDrawerDragEnd(if (abs(v.y) > abs(average)) v.y else average)
+                        }
                         DragAxis.DOWN -> if (totalY > SWIPE_DOWN_THRESHOLD_PX) currentActions.onSwipeDown()
                         DragAxis.NONE -> Unit
                     }
@@ -369,7 +438,7 @@ private fun PinnedRow(app: AppEntry, actions: HomeActions) {
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .width(240.dp)
-            .height(48.dp)
+            .height(44.dp)
             .bouncyClick(onLongClick = { actions.onAppLongPress(app) }) { bounds -> actions.onLaunch(app, bounds) },
     ) {
         AppIcon(app)

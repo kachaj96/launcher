@@ -13,6 +13,7 @@ import android.content.pm.LauncherApps
 import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
+import android.provider.MediaStore
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
 import android.widget.Toast
@@ -94,6 +95,9 @@ private val DEFAULT_PINS = listOf(
 )
 
 private const val REQUEST_WIDGET_CONFIGURE = 4711
+private const val BRAVE_PACKAGE = "com.brave.browser"
+private const val LENS_PACKAGE = "com.google.ar.lens"
+private const val GOOGLE_APP_PACKAGE = "com.google.android.googlequicksearchbox"
 
 class MainActivity : ComponentActivity() {
 
@@ -250,6 +254,9 @@ class MainActivity : ComponentActivity() {
                         onOpenSettings = { settingsOpen.value = true },
                         onRequestDefault = ::requestDefaultHome,
                         onRequestCalendar = { calendarRequest.launch(Manifest.permission.READ_CALENDAR) },
+                        onWebSearch = ::searchBrave,
+                        onCamera = ::openCamera,
+                        onLens = ::openLens,
                     ),
                 )
 
@@ -567,17 +574,35 @@ class MainActivity : ComponentActivity() {
 
     private fun drawerTravelPx(): Float = resources.displayMetrics.heightPixels * 0.55f
 
+    /**
+     * Drawer position as the finger left it, updated synchronously. The Animatable itself is
+     * updated on the next frame, so a fast flick can end before it catches up; deciding on
+     * [dragPosition] instead keeps a quick swipe from snapping shut.
+     */
+    private var dragPosition = 0f
+    private var dragging = false
+
     /** Finger moved by [dy] px; up (negative) opens, down closes. */
     private fun dragDrawer(dy: Float) {
-        animate { drawer.snapTo((drawer.value - dy / drawerTravelPx()).coerceIn(0f, 1f)) }
+        if (!dragging) {
+            dragging = true
+            dragPosition = drawer.value
+        }
+        dragPosition = (dragPosition - dy / drawerTravelPx()).coerceIn(0f, 1f)
+        val target = dragPosition
+        animate { drawer.snapTo(target) }
     }
 
-    /** Finger lifted: a quick flick decides, otherwise the position does. */
+    /**
+     * Finger lifted. A flick in either direction decides; a slow release keeps whichever
+     * way the finger was heading, unless it barely moved the drawer.
+     */
     private fun settleDrawer(velocityY: Float) {
+        dragging = false
         val open = when {
-            velocityY < -900f -> true
-            velocityY > 900f -> false
-            else -> drawer.value > 0.4f
+            velocityY < -300f -> true
+            velocityY > 300f -> false
+            else -> dragPosition > 0.3f
         }
         if (open) openDrawer() else closeDrawer()
     }
@@ -589,6 +614,30 @@ class MainActivity : ComponentActivity() {
 
     private fun closeDrawer(animated: Boolean = true) {
         animate { if (animated) drawer.animateTo(0f, Springs.soft()) else drawer.snapTo(0f) }
+    }
+
+    /** Brave Search results in the Brave app; any browser if Brave is not installed. */
+    private fun searchBrave(query: String) {
+        val uri = Uri.parse("https://search.brave.com/search?q=" + Uri.encode(query))
+        val brave = Intent(Intent.ACTION_VIEW, uri).setPackage(BRAVE_PACKAGE)
+        val ok = runCatching { startActivity(brave) }.isSuccess ||
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }.isSuccess
+        if (!ok) Toast.makeText(this, "Brak przeglądarki do wyszukiwania", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openCamera() {
+        val ok = runCatching { startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)) }.isSuccess
+        if (!ok) Toast.makeText(this, "Nie udało się otworzyć aparatu", Toast.LENGTH_SHORT).show()
+    }
+
+    /** Google Lens app if installed, else Lens inside the Google app. */
+    private fun openLens() {
+        val lens = packageManager.getLaunchIntentForPackage(LENS_PACKAGE)
+        val ok = (lens != null && runCatching { startActivity(lens) }.isSuccess) ||
+            runCatching {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("googleapp://lens")).setPackage(GOOGLE_APP_PACKAGE))
+            }.isSuccess
+        if (!ok) Toast.makeText(this, "Google Lens nie jest zainstalowany", Toast.LENGTH_SHORT).show()
     }
 
     private fun swipeDown(settings: LauncherSettings) {
