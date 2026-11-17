@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -926,7 +927,7 @@ private fun ResultGlyph(path: String, color: Color) {
     val parsed = remember(path) { androidx.compose.ui.graphics.vector.PathParser().parsePathString(path).toPath() }
     androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
         val k = size.width / 24f
-        androidx.compose.ui.graphics.drawscope.scale(k, k, pivot = androidx.compose.ui.geometry.Offset.Zero) {
+        scale(k, k, pivot = androidx.compose.ui.geometry.Offset.Zero) {
             drawPath(
                 parsed, color,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(
