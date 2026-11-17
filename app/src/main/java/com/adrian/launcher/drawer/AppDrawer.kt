@@ -313,14 +313,8 @@ private fun SearchBar(
                 )
             }
         }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(width = 64.dp, height = 44.dp)
-                .bouncyClick(pressedScale = 0.85f) { onClose() },
-        ) {
-            Chevron(pointsUp = false, color = Color(0xFF9A9A9A))
-        }
+        // No close button: pull the drawer down (list top or this bar) or press back.
+        Spacer(Modifier.height(16.dp))
     }
 }
 

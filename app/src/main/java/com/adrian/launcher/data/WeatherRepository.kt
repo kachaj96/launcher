@@ -23,7 +23,7 @@ import org.json.JSONObject
 const val WEATHER_MAX_AGE_MS = 30 * 60 * 1000L
 
 /** One hour of the forecast; [time] is local "HH:mm". */
-data class HourForecast(val time: String, val temperature: Double, val code: Int)
+data class HourForecast(val time: String, val temperature: Double, val code: Int, val windKmh: Double = 0.0)
 
 data class WeatherNow(
     val temperature: Double,
@@ -40,7 +40,7 @@ data class WeatherNow(
     fun toJson(): String = JSONObject()
         .put("t", temperature).put("a", apparent).put("h", humidity)
         .put("w", windKmh).put("c", code).put("p", place).put("at", fetchedAt)
-        .put("hr", org.json.JSONArray(hourly.map { JSONObject().put("t", it.time).put("v", it.temperature).put("c", it.code) }))
+        .put("hr", org.json.JSONArray(hourly.map { JSONObject().put("t", it.time).put("v", it.temperature).put("c", it.code).put("w", it.windKmh) }))
         .toString()
 
     companion object {
@@ -50,7 +50,7 @@ data class WeatherNow(
             val hr = o.optJSONArray("hr")
             val hourly = if (hr == null) emptyList() else (0 until hr.length()).map { i ->
                 val h = hr.getJSONObject(i)
-                HourForecast(h.getString("t"), h.getDouble("v"), h.getInt("c"))
+                HourForecast(h.getString("t"), h.getDouble("v"), h.getInt("c"), h.optDouble("w", 0.0))
             }
             WeatherNow(
                 o.getDouble("t"), o.getDouble("a"), o.getInt("h"),
@@ -119,7 +119,7 @@ class WeatherRepository(private val context: Context) {
             Locale.US,
             "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f" +
                 "&current=temperature_2m,apparent_temperature,relative_humidity_2m,wind_speed_10m,weather_code" +
-                "&hourly=temperature_2m,weather_code&forecast_hours=13" +
+                "&hourly=temperature_2m,weather_code,wind_speed_10m&forecast_hours=13" +
                 "&timezone=auto",
             place.lat, place.lon,
         )
@@ -129,9 +129,10 @@ class WeatherRepository(private val context: Context) {
             val times = h.getJSONArray("time")
             val temps = h.getJSONArray("temperature_2m")
             val codes = h.getJSONArray("weather_code")
+            val winds = h.optJSONArray("wind_speed_10m")
             (0 until times.length()).map { i ->
                 // "2026-11-17T11:00" -> "11:00"
-                HourForecast(times.getString(i).substringAfter('T'), temps.getDouble(i), codes.getInt(i))
+                HourForecast(times.getString(i).substringAfter('T'), temps.getDouble(i), codes.getInt(i), winds?.optDouble(i, 0.0) ?: 0.0)
             }.drop(1).take(12)
         }.orEmpty()
         return WeatherNow(

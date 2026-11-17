@@ -133,6 +133,14 @@ Odstępstwa od planu:
 - Skupienie (wył./harmonogram/zawsze) ukrywa wybrane aplikacje z ekranu i szuflady. Tryb wieczorny przygasza ekran i zmienia akcent w podanych godzinach.
 - Ustawienia w kategoriach z podstronami.
 
+## Wersja 1.2 (17 listopada 2026)
+
+- Bez strzałek: szuflada tylko gestem.
+- Gesty konfigurowalne (`data/Gestures.kt`): w górę, w dół, w prawo na pierwszej stronie, w lewo na ostatniej, przytrzymanie, dwuklik, stuknięcie w godzinę i w pogodę. Akcje: szuflada, powiadomienia, wyszukiwanie, ustawienia, zegar, ostatnie połączenia, kontakty, aparat, latarka, prognoza, dowolna aplikacja.
+- Stuknięcie w godzinę: aplikacja Zegar. Prognoza 12 h przewijana, z wiatrem; gesty ekranu są wtedy wyłączone.
+- Propozycje (wariant B): po stuknięciu w pusty pasek 4 aplikacje dopasowane do pory dnia i typu dnia, z historii uruchomień (ostatnie 400, nie trafia do kopii ustawień).
+- Latarka jako akcja gestu (domyślnie dwuklik). Pierścień ładowania po podłączeniu ładowarki.
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

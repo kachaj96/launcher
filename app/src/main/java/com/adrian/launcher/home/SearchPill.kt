@@ -62,6 +62,7 @@ fun SearchPill(
     onQueryChange: (String) -> Unit,
     focused: Boolean,
     onFocusChange: (Boolean) -> Unit,
+    focusRequester: FocusRequester,
     accent: Color,
     placeholder: String,
     onSearch: () -> Unit,
@@ -70,7 +71,6 @@ fun SearchPill(
     onGallery: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val focusRequester = remember { FocusRequester() }
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = modifier

@@ -1,6 +1,13 @@
 package com.adrian.launcher.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.adrian.launcher.data.Gesture
+import com.adrian.launcher.data.GestureAction
+import com.adrian.launcher.data.GestureBinding
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -110,7 +117,7 @@ private enum class Page(val title: String, val subtitle: String) {
     FOCUS("Skupienie", "ukrywanie aplikacji według harmonogramu"),
     EVENING("Tryb wieczorny", "przygaszony ekran, ciepły akcent"),
     WEATHER("Pogoda", "lokalizacja, miasto"),
-    GESTURES("Gesty i wibracje", "w dół, wibracje"),
+    GESTURES("Gesty i wibracje", "akcja dla każdego gestu, wibracje"),
     PERMISSIONS("Uprawnienia", "lokalizacja, kalendarz, powiadomienia"),
     BACKUP("Kopia ustawień", "eksport i import"),
     ABOUT("O launcherze", "wersja, ikony"),
@@ -326,7 +333,13 @@ private fun Ctx.HomePage(widgetChoices: List<WidgetChoice>, currentWidget: Widge
         Hint("Oba wymagają dostępu do powiadomień.")
         SmallAction("Włącz dostęp do powiadomień", actions.onRequestNotificationAccess)
     }
-    SwitchRow("Stuknięcia", "godzina otwiera budziki, pogoda pokazuje prognozę 12 h", s.tapActions) { on -> update { it.copy(tapActions = on) } }
+    SwitchRow("Propozycje aplikacji", "po stuknięciu w pasek: aplikacje, których używasz o tej porze", s.suggestions) { on ->
+        update { it.copy(suggestions = on) }
+    }
+    SwitchRow("Pierścień ładowania", "poziom baterii na chwilę po podłączeniu ładowarki", s.chargingRing) { on ->
+        update { it.copy(chargingRing = on) }
+    }
+    Hint("Stuknięcia w godzinę i pogodę ustawisz w Gesty i wibracje.")
 }
 
 @Composable
@@ -450,20 +463,143 @@ private fun Ctx.WeatherPage() {
 
 @Composable
 private fun Ctx.GesturesPage() {
-    Hint("W górę: szuflada · w bok: karuzela (w dowolnym miejscu) · przytrzymanie: ustawienia")
-    SwitchRow("W dół: powiadomienia", "przesunięcie w dół rozwija panel powiadomień", s.swipeDownEnabled) { on ->
-        update { it.copy(swipeDownEnabled = on, swipeDownBroken = false) }
+    var editing by remember { mutableStateOf<Gesture?>(null) }
+    Section("GEST · AKCJA")
+    Gesture.entries.forEach { g ->
+        val b = s.gesture(g)
+        val label = if (b.action == GestureAction.APP) (b.appKey?.let { byKey[it]?.label } ?: "aplikacja usunięta") else b.action.title
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .bouncyClick(pressedScale = 0.98f) { editing = g }
+                .padding(vertical = 12.dp),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(g.title, color = Ink, fontSize = 15.sp)
+                Text(label, color = accent, fontSize = 13.sp)
+            }
+            Text("›", color = Faint, fontSize = 24.sp)
+        }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+    }
+    Hint("„W prawo” działa na pierwszej stronie karuzeli, „w lewo” na ostatniej. Na pozostałych przesunięcie w bok zmienia stronę.")
+    if (Gesture.entries.none { s.gesture(it).action == GestureAction.DRAWER }) {
+        Text("Żaden gest nie otwiera teraz szuflady. Aplikacje znajdziesz wtedy tylko w wyszukiwarce.", color = Color(0xFFFF9B8A), fontSize = 13.sp)
     }
     if (s.swipeDownBroken) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Gest w dół nie zadziałał na tym telefonie, więc jest wstrzymany.",
+                "Rozwijanie powiadomień nie zadziałało na tym telefonie, więc jest wstrzymane.",
                 color = Color(0xFFFF9B8A), fontSize = 13.sp, modifier = Modifier.weight(1f),
             )
             SmallAction("Spróbuj ponownie") { update { it.copy(swipeDownBroken = false) } }
         }
     }
+    Section("WIBRACJE")
     SwitchRow("Wibracje", "przy zmianie strony, otwieraniu szuflady i przytrzymaniu", s.haptics) { on -> update { it.copy(haptics = on) } }
+
+    editing?.let { g ->
+        GesturePicker(
+            gesture = g,
+            current = s.gesture(g),
+            apps = apps,
+            accent = accent,
+            onPick = { binding ->
+                update { st -> st.copy(gestures = st.gestures + (g to binding)) }
+                editing = null
+            },
+            onDismiss = { editing = null },
+        )
+    }
+}
+
+/** Bottom sheet with every action; "Inna aplikacja" swaps the list for the apps. */
+@Composable
+private fun GesturePicker(
+    gesture: Gesture,
+    current: GestureBinding,
+    apps: List<AppEntry>,
+    accent: Color,
+    onPick: (GestureBinding) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var pickingApp by remember { mutableStateOf(false) }
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            contentAlignment = Alignment.BottomCenter,
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(12.dp)
+                    .fillMaxWidth()
+                    .heightIn(max = 600.dp)
+                    .background(Panel, RoundedCornerShape(28.dp))
+                    .border(1.dp, Line, RoundedCornerShape(28.dp))
+                    .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
+                    .padding(vertical = 20.dp),
+            ) {
+                Text(gesture.title, color = Ink, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 24.dp))
+                Text(
+                    if (pickingApp) "Wybierz aplikację" else "Wybierz, co ma się stać",
+                    color = Quiet, fontSize = 13.sp,
+                    modifier = Modifier.padding(start = 24.dp, end = 24.dp, bottom = 8.dp),
+                )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (!pickingApp) {
+                        GestureAction.entries
+                            // The drawer is offered for whole-screen gestures, not for taps on the clock, weather or edges.
+                            .filter { a -> a != GestureAction.DRAWER || gesture in setOf(Gesture.SWIPE_UP, Gesture.SWIPE_DOWN, Gesture.LONG_PRESS, Gesture.DOUBLE_TAP) }
+                            .forEach { a ->
+                                val selected = current.action == a
+                                ChoiceRowCompact(if (a == GestureAction.APP) "Inna aplikacja…" else a.title, selected, accent) {
+                                    if (a == GestureAction.APP) pickingApp = true else onPick(GestureBinding(a))
+                                }
+                            }
+                    } else {
+                        apps.forEach { app ->
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onPick(GestureBinding(GestureAction.APP, app.key)) }
+                                    .padding(horizontal = 24.dp, vertical = 10.dp),
+                            ) {
+                                AppIcon(app)
+                                Spacer(Modifier.width(14.dp))
+                                Text(app.label, color = Ink, fontSize = 15.sp, maxLines = 1)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChoiceRowCompact(title: String, selected: Boolean, accent: Color, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(44.dp)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 24.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(16.dp)
+                .border(1.5.dp, if (selected) accent else Quiet, CircleShape)
+                .padding(3.dp)
+                .background(if (selected) accent else Color.Transparent, CircleShape),
+        )
+        Spacer(Modifier.width(14.dp))
+        Text(title, color = Ink, fontSize = 15.sp)
+    }
 }
 
 @Composable

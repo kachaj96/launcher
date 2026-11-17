@@ -1,6 +1,15 @@
 package com.adrian.launcher
 
 import android.Manifest
+import android.provider.CallLog
+import android.provider.ContactsContract
+import com.adrian.launcher.data.Gesture
+import com.adrian.launcher.data.GestureAction
+import com.adrian.launcher.data.LAUNCH_LOG_SIZE
+import com.adrian.launcher.data.LaunchRecord
+import com.adrian.launcher.data.suggestApps
+import com.adrian.launcher.system.Torch
+import com.adrian.launcher.ui.rememberBatteryLevel
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.provider.AlarmClock
@@ -148,6 +157,14 @@ class MainActivity : ComponentActivity() {
     private val weatherLoading = mutableStateOf(false)
     private val resetSignal = mutableIntStateOf(0)
 
+    private lateinit var torch: Torch
+    private val chargingSignal = mutableIntStateOf(0)
+    private val powerReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            chargingSignal.intValue++
+        }
+    }
+
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
             // Next time the phone is unlocked, start from the clock with nothing open.
@@ -194,11 +211,15 @@ class MainActivity : ComponentActivity() {
         weatherRepo = WeatherRepository(this)
         calendarRepo = CalendarRepository(this)
         widgets = Widgets(this)
+        torch = Torch(this)
 
         appsCallback = appsRepo.registerChanges { reloadApps() }
         reloadApps()
         ContextCompat.registerReceiver(
             this, screenOffReceiver, IntentFilter(Intent.ACTION_SCREEN_OFF), ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
+        ContextCompat.registerReceiver(
+            this, powerReceiver, IntentFilter(Intent.ACTION_POWER_CONNECTED), ContextCompat.RECEIVER_NOT_EXPORTED,
         )
 
         // A home screen has nowhere to go back to; overlays add their own handlers on top.
@@ -231,6 +252,7 @@ class MainActivity : ComponentActivity() {
         val byKey = remember(renamed) { renamed.associateBy { it.key } }
         // Focus hides its apps from the home screen and drawer; search still finds them.
         val focusHidden = if (focus) settings.focusApps else emptySet()
+        val battery by rememberBatteryLevel()
         val visible = remember(renamed, settings.hidden, focusHidden) {
             renamed.filter { it.key !in settings.hidden && it.key !in focusHidden }
         }
@@ -241,6 +263,13 @@ class MainActivity : ComponentActivity() {
             if (!settings.showRecent) emptyList()
             else settings.lastLaunch.entries.sortedByDescending { it.value }
                 .filter { it.key !in focusHidden }.mapNotNull { byKey[it.key] }.take(4)
+        }
+        val suggestions = remember(settings.launchLog, visible, now.hour, settings.suggestions) {
+            if (!settings.suggestions) emptyList()
+            else {
+                val allowed = visible.map { it.key }.toSet()
+                suggestApps(settings.launchLog, now, allowed).mapNotNull { byKey[it] }
+            }
         }
         val weather = remember(settings.weatherCache) { WeatherNow.fromJson(settings.weatherCache) }
         val wallpaperBitmap by produceState<ImageBitmap?>(null, settings.wallpaperVersion) {
@@ -286,7 +315,10 @@ class MainActivity : ComponentActivity() {
                     enterProgress = { homeEnter.value },
                     nowPlaying = playing,
                     notified = notified,
-                    tapActions = settings.tapActions,
+                    actionOf = { g -> settings.gesture(g).action },
+                    chargingSignal = chargingSignal.intValue,
+                    battery = battery,
+                    showChargingRing = settings.chargingRing,
                     focusActive = focus,
                     evening = evening,
                     spotlight = SpotlightConfig(
@@ -295,22 +327,20 @@ class MainActivity : ComponentActivity() {
                         calculator = settings.calculator,
                         placeholder = "Szukaj w ${settings.searchEngine.title}",
                         onCopy = ::copyToClipboard,
+                        suggestions = suggestions,
                     ),
                     actions = HomeActions(
                         onLaunch = ::launchApp,
                         onAppLongPress = { menuApp.value = it },
                         onDrawerDrag = ::dragDrawer,
                         onDrawerDragEnd = ::settleDrawer,
-                        onOpenDrawer = ::openDrawer,
-                        onSwipeDown = { swipeDown(settings) },
-                        onOpenSettings = { settingsOpen.value = true },
+                        onGesture = { g -> performGesture(g, settings, byKey) },
                         onRequestDefault = ::requestDefaultHome,
                         onRequestCalendar = { calendarRequest.launch(Manifest.permission.READ_CALENDAR) },
                         onWebSearch = { q -> webSearch(q, settings) },
                         onCamera = ::openCamera,
                         onLens = ::openLens,
                         onGallery = ::openGallery,
-                        onOpenAlarms = ::openAlarms,
                     ),
                 )
 
@@ -490,6 +520,8 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         appsCallback?.let { appsRepo.unregisterChanges(it) }
         runCatching { unregisterReceiver(screenOffReceiver) }
+        runCatching { unregisterReceiver(powerReceiver) }
+        torch.release()
         super.onDestroy()
     }
 
@@ -632,7 +664,8 @@ class MainActivity : ComponentActivity() {
         updateSettings { s ->
             val history = (s.lastLaunch + (app.key to now)).entries
                 .sortedByDescending { it.value }.take(20).associate { it.key to it.value }
-            s.copy(lastLaunch = history)
+            val log = (s.launchLog + LaunchRecord(app.key, now)).takeLast(LAUNCH_LOG_SIZE)
+            s.copy(lastLaunch = history, launchLog = log)
         }
     }
 
@@ -707,9 +740,60 @@ class MainActivity : ComponentActivity() {
         if (!ok) Toast.makeText(this, "Nie znalazłem galerii", Toast.LENGTH_SHORT).show()
     }
 
-    private fun openAlarms() {
-        val ok = runCatching { startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }.isSuccess
-        if (!ok) Toast.makeText(this, "Nie znalazłem budzików", Toast.LENGTH_SHORT).show()
+    /** Samsung or Google clock app (alarms, timers); the system alarms screen as a last resort. */
+    private fun openClock() {
+        val ok = listOf("com.sec.android.app.clockpackage", "com.google.android.deskclock")
+            .mapNotNull { packageManager.getLaunchIntentForPackage(it) }
+            .plus(Intent(AlarmClock.ACTION_SHOW_ALARMS))
+            .any { runCatching { startActivity(it) }.isSuccess }
+        if (!ok) Toast.makeText(this, "Nie znalazłem aplikacji Zegar", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openRecentCalls() {
+        val ok = listOf(
+            Intent(Intent.ACTION_VIEW).setType(CallLog.Calls.CONTENT_TYPE),
+            Intent(Intent.ACTION_VIEW, CallLog.Calls.CONTENT_URI),
+            Intent(Intent.ACTION_DIAL),
+        ).any { runCatching { startActivity(it) }.isSuccess }
+        if (!ok) Toast.makeText(this, "Nie znalazłem aplikacji Telefon", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openContacts() {
+        val ok = listOf(
+            Intent(Intent.ACTION_VIEW, ContactsContract.Contacts.CONTENT_URI),
+            Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_CONTACTS),
+        ).any { runCatching { startActivity(it) }.isSuccess }
+        if (!ok) Toast.makeText(this, "Nie znalazłem kontaktów", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toggleTorch() {
+        val state = torch.toggle()
+        if (state == null) {
+            Toast.makeText(this, "Latarka niedostępna", Toast.LENGTH_SHORT).show()
+        } else if (hapticsEnabled) {
+            window.decorView.performHapticFeedback(HapticFeedbackConstants.CONFIRM)
+        }
+    }
+
+    /** Carries out the action bound to a gesture. Search and forecast are handled by the home screen. */
+    private fun performGesture(g: Gesture, settings: LauncherSettings, byKey: Map<String, AppEntry>) {
+        val binding = settings.gesture(g)
+        when (binding.action) {
+            GestureAction.NONE, GestureAction.SEARCH, GestureAction.FORECAST -> Unit
+            GestureAction.DRAWER -> openDrawer()
+            GestureAction.NOTIFICATIONS -> swipeDown(settings)
+            GestureAction.SETTINGS -> settingsOpen.value = true
+            GestureAction.CLOCK -> openClock()
+            GestureAction.RECENT_CALLS -> openRecentCalls()
+            GestureAction.CONTACTS -> openContacts()
+            GestureAction.CAMERA -> openCamera()
+            GestureAction.FLASHLIGHT -> toggleTorch()
+            GestureAction.APP -> {
+                val app = binding.appKey?.let { byKey[it] }
+                if (app != null) launchApp(app, null)
+                else Toast.makeText(this, "Aplikacji z gestu nie ma już na telefonie", Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     private fun copyToClipboard(text: String) {
@@ -750,7 +834,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun swipeDown(settings: LauncherSettings) {
-        if (!settings.swipeDownEnabled || settings.swipeDownBroken) return
+        if (settings.swipeDownBroken) return
         if (!SystemPanels.expandNotifications(this)) {
             updateSettings { it.copy(swipeDownBroken = true) }
             Toast.makeText(this, "Gest w dół nie działa na tym telefonie, wyłączam go", Toast.LENGTH_LONG).show()

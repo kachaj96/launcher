@@ -81,7 +81,15 @@ data class LauncherSettings(
     val eveningMode: Boolean = false,
     val eveningStart: Int = 22 * 60,
     val eveningEnd: Int = 6 * 60,
+
+    val gestures: Map<Gesture, GestureBinding> = DEFAULT_GESTURES,
+    /** Recent launches, oldest first, for suggestions; never exported. */
+    val launchLog: List<LaunchRecord> = emptyList(),
+    val suggestions: Boolean = true,
+    val chargingRing: Boolean = true,
 ) {
+    fun gesture(g: Gesture): GestureBinding = gestures[g] ?: DEFAULT_GESTURES.getValue(g)
+
     val enabledPages: List<PageId>
         get() = pages.filter { it.enabled }.map { it.id }.ifEmpty { listOf(PageId.CLOCK) }
 
@@ -141,12 +149,17 @@ class SettingsStore(private val context: Context) {
 
     /** Settings for backup: everything except caches and launch history. */
     fun exportJson(settings: LauncherSettings): String =
-        encode(settings.copy(weatherCache = "", lastLaunch = emptyMap())).toString(2)
+        encode(settings.copy(weatherCache = "", lastLaunch = emptyMap(), launchLog = emptyList())).toString(2)
 
     suspend fun importJson(json: String) {
         val imported = decodeJson(JSONObject(json))
         update { old ->
-            imported.copy(weatherCache = old.weatherCache, lastLaunch = old.lastLaunch, calendarWidgetId = old.calendarWidgetId)
+            imported.copy(
+                weatherCache = old.weatherCache,
+                lastLaunch = old.lastLaunch,
+                launchLog = old.launchLog,
+                calendarWidgetId = old.calendarWidgetId,
+            )
         }
     }
 
@@ -203,6 +216,24 @@ class SettingsStore(private val context: Context) {
             eveningMode = o.optBoolean("eveningMode", d.eveningMode),
             eveningStart = o.optInt("eveningStart", d.eveningStart),
             eveningEnd = o.optInt("eveningEnd", d.eveningEnd),
+            gestures = decodeGestures(o.optJSONObject("gestures")).let { g ->
+                if (o.has("gestures")) g else g.toMutableMap().apply {
+                    // Carry over the switches that existed before gestures were configurable.
+                    if (!o.optBoolean("swipeDownEnabled", true)) put(Gesture.SWIPE_DOWN, GestureBinding(GestureAction.NONE))
+                    if (!o.optBoolean("tapActions", true)) {
+                        put(Gesture.TAP_CLOCK, GestureBinding(GestureAction.NONE))
+                        put(Gesture.TAP_WEATHER, GestureBinding(GestureAction.NONE))
+                    }
+                }
+            },
+            launchLog = o.optJSONArray("launchLog")?.let { a ->
+                (0 until a.length()).mapNotNull { i ->
+                    val r = a.optJSONObject(i) ?: return@mapNotNull null
+                    LaunchRecord(r.getString("k"), r.getLong("t"))
+                }
+            }.orEmpty(),
+            suggestions = o.optBoolean("suggestions", d.suggestions),
+            chargingRing = o.optBoolean("chargingRing", d.chargingRing),
         )
     }
 
@@ -242,6 +273,10 @@ class SettingsStore(private val context: Context) {
         put("eveningMode", s.eveningMode)
         put("eveningStart", s.eveningStart)
         put("eveningEnd", s.eveningEnd)
+        put("gestures", encodeGestures(s.gestures))
+        put("launchLog", JSONArray(s.launchLog.map { JSONObject().put("k", it.key).put("t", it.at) }))
+        put("suggestions", s.suggestions)
+        put("chargingRing", s.chargingRing)
     }
 }
 

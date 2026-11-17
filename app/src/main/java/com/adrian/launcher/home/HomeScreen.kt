@@ -66,6 +66,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -74,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adrian.launcher.data.AppEntry
 import com.adrian.launcher.data.CalendarEvent
+import com.adrian.launcher.data.Gesture
+import com.adrian.launcher.data.GestureAction
 import com.adrian.launcher.data.NO_WIDGET
 import com.adrian.launcher.data.PageId
 import com.adrian.launcher.data.WeatherNow
@@ -104,16 +107,14 @@ class HomeActions(
     val onDrawerDrag: (Float) -> Unit,
     /** Upward drag released with this vertical velocity (px/s). */
     val onDrawerDragEnd: (Float) -> Unit,
-    val onOpenDrawer: () -> Unit,
-    val onSwipeDown: () -> Unit,
-    val onOpenSettings: () -> Unit,
+    /** A gesture whose action the activity carries out (drawer, notifications, apps...). */
+    val onGesture: (Gesture) -> Unit,
     val onRequestDefault: () -> Unit,
     val onRequestCalendar: () -> Unit,
     val onWebSearch: (String) -> Unit,
     val onCamera: () -> Unit,
     val onLens: () -> Unit,
     val onGallery: () -> Unit,
-    val onOpenAlarms: () -> Unit,
 )
 
 /** What the search pill offers while typing. */
@@ -125,6 +126,8 @@ class SpotlightConfig(
     /** "Szukaj w Google" etc. */
     val placeholder: String,
     val onCopy: (String) -> Unit,
+    /** Apps usually opened at this time; shown when the pill is focused and empty. */
+    val suggestions: List<AppEntry> = emptyList(),
 )
 
 private enum class DragAxis { NONE, HORIZONTAL, UP, DOWN }
@@ -152,7 +155,12 @@ fun HomeScreen(
     nowPlaying: NowPlaying?,
     /** Packages with unread notifications; empty when dots are off. */
     notified: Set<String>,
-    tapActions: Boolean,
+    /** Action bound to each gesture; drives what the home screen does itself (search, forecast). */
+    actionOf: (Gesture) -> GestureAction,
+    /** Shows the charging ring each time it changes (0 = nothing yet). */
+    chargingSignal: Int,
+    battery: Int,
+    showChargingRing: Boolean,
     focusActive: Boolean,
     evening: Boolean,
     spotlight: SpotlightConfig,
@@ -166,6 +174,18 @@ fun HomeScreen(
     var showHourly by remember { mutableStateOf(false) }
     BackHandler(enabled = searchFocused) { focusManager.clearFocus() }
     BackHandler(enabled = showHourly) { showHourly = false }
+    val searchFocus = remember { FocusRequester() }
+    val fire: (Gesture) -> Unit = { g ->
+        when (actionOf(g)) {
+            GestureAction.NONE -> Unit
+            GestureAction.FORECAST -> if (weather != null) showHourly = true
+            GestureAction.SEARCH -> runCatching { searchFocus.requestFocus() }
+            else -> {
+                focusManager.clearFocus()
+                actions.onGesture(g)
+            }
+        }
+    }
     // Opening an app or locking the phone ends the search.
     LaunchedEffect(resetSignal) {
         focusManager.clearFocus()
@@ -193,12 +213,21 @@ fun HomeScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-            .homeGestures(pagerState, actions)
+            .homeGestures(
+                pagerState = pagerState,
+                actions = actions,
+                enabled = !showHourly,
+                upDragsDrawer = actionOf(Gesture.SWIPE_UP) == GestureAction.DRAWER,
+                fire = fire,
+            )
             .pointerInput(Unit) {
-                detectTapGestures(onLongPress = {
-                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    actions.onOpenSettings()
-                })
+                detectTapGestures(
+                    onLongPress = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        fire(Gesture.LONG_PRESS)
+                    },
+                    onDoubleTap = { fire(Gesture.DOUBLE_TAP) },
+                )
             },
     ) {
         BoxWithConstraints(
@@ -233,8 +262,8 @@ fun HomeScreen(
                                 now = now,
                                 weather = weather,
                                 hint = weatherHint,
-                                onClockTap = if (tapActions) actions.onOpenAlarms else null,
-                                onWeatherTap = if (tapActions && weather != null) ({ showHourly = true }) else null,
+                                onClockTap = if (actionOf(Gesture.TAP_CLOCK) != GestureAction.NONE) ({ fire(Gesture.TAP_CLOCK) }) else null,
+                                onWeatherTap = if (actionOf(Gesture.TAP_WEATHER) != GestureAction.NONE) ({ fire(Gesture.TAP_WEATHER) }) else null,
                             )
                             PageId.CALENDAR -> {
                                 val card = @Composable {
@@ -282,20 +311,7 @@ fun HomeScreen(
                 }
 
                 // Room for the search pill, which is drawn as an overlay so it can rise with the keyboard.
-                Spacer(Modifier.height((SEARCH_PILL_HEIGHT_DP + 8).dp))
-
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .size(48.dp)
-                        .bouncyClick(pressedScale = 0.85f) {
-                            focusManager.clearFocus()
-                            actions.onOpenDrawer()
-                        },
-                ) {
-                    Chevron(pointsUp = true, color = Color(0xFF9A9A9A))
-                }
+                Spacer(Modifier.height((SEARCH_PILL_HEIGHT_DP + 24).dp))
             }
         }
 
@@ -310,7 +326,7 @@ fun HomeScreen(
             )
         }
 
-        val pillBottom by animateDpAsState(if (searchFocused) 12.dp else 56.dp, Springs.soft(), label = "pill")
+        val pillBottom by animateDpAsState(if (searchFocused) 12.dp else 16.dp, Springs.soft(), label = "pill")
         Column(
             verticalArrangement = Arrangement.Bottom,
             modifier = Modifier
@@ -320,6 +336,16 @@ fun HomeScreen(
                 .padding(start = 20.dp, end = 20.dp, bottom = pillBottom),
         ) {
             val trimmed = query.trim()
+            AnimatedVisibility(
+                visible = searchFocused && trimmed.isEmpty() && spotlight.suggestions.isNotEmpty(),
+                enter = slideInVertically(Springs.soft()) { it / 4 } + fadeIn(Springs.soft()),
+                exit = fadeOut(Springs.snappy()),
+            ) {
+                SuggestionsPanel(spotlight.suggestions) { app, bounds ->
+                    focusManager.clearFocus()
+                    actions.onLaunch(app, bounds)
+                }
+            }
             AnimatedVisibility(
                 visible = searchFocused && trimmed.isNotEmpty(),
                 enter = slideInVertically(Springs.soft()) { it / 4 } + fadeIn(Springs.soft()),
@@ -345,6 +371,7 @@ fun HomeScreen(
                 onQueryChange = { query = it },
                 focused = searchFocused,
                 onFocusChange = { searchFocused = it },
+                focusRequester = searchFocus,
                 accent = accent,
                 placeholder = spotlight.placeholder,
                 onSearch = {
@@ -370,6 +397,8 @@ fun HomeScreen(
         }
 
         HourlySheet(visible = showHourly, weather = weather, onDismiss = { showHourly = false })
+
+        if (showChargingRing) ChargingRing(chargingSignal, battery, accent)
     }
 }
 
@@ -572,6 +601,11 @@ private fun HourlySheet(visible: Boolean, weather: WeatherNow?, onDismiss: () ->
                         modifier = Modifier.padding(horizontal = 24.dp),
                     )
                 } else {
+                    Text(
+                        "przewiń w bok",
+                        color = Quiet, fontSize = 13.sp,
+                        modifier = Modifier.padding(start = 24.dp, top = 0.dp, bottom = 12.dp),
+                    )
                     LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
                         items(hours) { h ->
                             Column(
@@ -582,6 +616,7 @@ private fun HourlySheet(visible: Boolean, weather: WeatherNow?, onDismiss: () ->
                                 Text(h.time, color = Quiet, fontSize = 13.sp)
                                 WeatherGlyph(h.code, 24)
                                 Text("${h.temperature.roundToInt()}°", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                                Text("${h.windKmh.roundToInt()} km/h", color = Quiet, fontSize = 11.sp)
                             }
                         }
                     }
@@ -602,13 +637,25 @@ private fun HourlySheet(visible: Boolean, weather: WeatherNow?, onDismiss: () ->
  * consumed before the slop, so taps and long presses on children still work.
  */
 @Composable
-private fun Modifier.homeGestures(pagerState: PagerState, actions: HomeActions): Modifier {
+private fun Modifier.homeGestures(
+    pagerState: PagerState,
+    actions: HomeActions,
+    enabled: Boolean,
+    upDragsDrawer: Boolean,
+    fire: (Gesture) -> Unit,
+): Modifier {
     val scope = rememberCoroutineScope()
     val slop = LocalViewConfiguration.current.touchSlop
     val currentActions by rememberUpdatedState(actions)
+    val currentFire by rememberUpdatedState(fire)
+    val dragsDrawer by rememberUpdatedState(upDragsDrawer)
+    if (!enabled) return this
     return pointerInput(pagerState) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            // Edge swipes: right on the first page, left on the last, where there is no page to go to.
+            val atFirst = pagerState.currentPage == 0 && abs(pagerState.currentPageOffsetFraction) < 0.01f
+            val atLast = pagerState.currentPage == pagerState.pageCount - 1 && abs(pagerState.currentPageOffsetFraction) < 0.01f
             val tracker = VelocityTracker()
             tracker.addPosition(down.uptimeMillis, down.position)
             var axis = DragAxis.NONE
@@ -623,15 +670,25 @@ private fun Modifier.homeGestures(pagerState: PagerState, actions: HomeActions):
                     tracker.addPosition(change.uptimeMillis, change.position)
                     val v = tracker.calculateVelocity()
                     when (axis) {
-                        DragAxis.HORIZONTAL -> scope.launch { settlePager(pagerState, v.x) }
-                        DragAxis.UP -> {
-                            // A very short flick gives the tracker too few samples; fall back
-                            // to the average speed of the whole gesture.
-                            val elapsedMs = (change.uptimeMillis - down.uptimeMillis).coerceAtLeast(1L)
-                            val average = totalY / elapsedMs * 1000f
-                            currentActions.onDrawerDragEnd(if (abs(v.y) > abs(average)) v.y else average)
+                        DragAxis.HORIZONTAL -> {
+                            when {
+                                atFirst && totalX > SWIPE_DOWN_THRESHOLD_PX -> currentFire(Gesture.SWIPE_RIGHT)
+                                atLast && totalX < -SWIPE_DOWN_THRESHOLD_PX -> currentFire(Gesture.SWIPE_LEFT)
+                            }
+                            scope.launch { settlePager(pagerState, v.x) }
                         }
-                        DragAxis.DOWN -> if (totalY > SWIPE_DOWN_THRESHOLD_PX) currentActions.onSwipeDown()
+                        DragAxis.UP -> {
+                            if (dragsDrawer) {
+                                // A very short flick gives the tracker too few samples; fall back
+                                // to the average speed of the whole gesture.
+                                val elapsedMs = (change.uptimeMillis - down.uptimeMillis).coerceAtLeast(1L)
+                                val average = totalY / elapsedMs * 1000f
+                                currentActions.onDrawerDragEnd(if (abs(v.y) > abs(average)) v.y else average)
+                            } else if (totalY < -SWIPE_DOWN_THRESHOLD_PX) {
+                                currentFire(Gesture.SWIPE_UP)
+                            }
+                        }
+                        DragAxis.DOWN -> if (totalY > SWIPE_DOWN_THRESHOLD_PX) currentFire(Gesture.SWIPE_DOWN)
                         DragAxis.NONE -> Unit
                     }
                     break
@@ -651,7 +708,7 @@ private fun Modifier.homeGestures(pagerState: PagerState, actions: HomeActions):
                     }
                     DragAxis.UP -> {
                         change.consume()
-                        currentActions.onDrawerDrag(delta.y)
+                        if (dragsDrawer) currentActions.onDrawerDrag(delta.y)
                     }
                     DragAxis.DOWN -> change.consume()
                     DragAxis.NONE -> Unit
@@ -666,7 +723,7 @@ private fun Modifier.homeGestures(pagerState: PagerState, actions: HomeActions):
                     } else {
                         axis = if (totalY < 0) DragAxis.UP else DragAxis.DOWN
                         mainChange.consume()
-                        if (axis == DragAxis.UP) currentActions.onDrawerDrag(totalY)
+                        if (axis == DragAxis.UP && dragsDrawer) currentActions.onDrawerDrag(totalY)
                     }
                 }
             }
@@ -745,6 +802,83 @@ private fun PinnedRow(app: AppEntry, hasNotification: Boolean, accent: Color, ac
         if (hasNotification) {
             Spacer(Modifier.width(8.dp))
             Box(Modifier.size(6.dp).background(accent, CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun SuggestionsPanel(apps: List<AppEntry>, onLaunch: (AppEntry, Rect?) -> Unit) {
+    Column(
+        modifier = Modifier
+            .padding(bottom = 8.dp)
+            .fillMaxWidth()
+            .background(Panel, RoundedCornerShape(22.dp))
+            .border(1.dp, Line, RoundedCornerShape(22.dp))
+            .padding(top = 14.dp, bottom = 10.dp, start = 8.dp, end = 8.dp),
+    ) {
+        Text(
+            "PROPONOWANE",
+            color = com.adrian.launcher.ui.Faint, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.6.sp,
+            modifier = Modifier.padding(start = 10.dp, bottom = 10.dp),
+        )
+        Row {
+            apps.take(4).forEach { app ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .bouncyClick(pressedScale = 0.9f) { b -> onLaunch(app, b) }
+                        .padding(vertical = 8.dp),
+                ) {
+                    AppIcon(app, size = 24.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(app.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Light, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            repeat(4 - apps.take(4).size) { Spacer(Modifier.weight(1f)) }
+        }
+    }
+}
+
+/** Shown for a moment when the charger is plugged in: a thin ring filled to the battery level. */
+@Composable
+private fun ChargingRing(signal: Int, battery: Int, accent: Color) {
+    if (signal == 0) return
+    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
+    val sweep = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(signal) {
+        appear.snapTo(0f)
+        sweep.snapTo(0f)
+        launch { sweep.animateTo(battery / 100f, androidx.compose.animation.core.tween(900)) }
+        appear.animateTo(1f, Springs.soft())
+        kotlinx.coroutines.delay(2200)
+        appear.animateTo(0f, Springs.soft())
+    }
+    if (appear.value < 0.01f && sweep.value > 0f && !appear.isRunning) return
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = appear.value.coerceIn(0f, 1f)
+                val sc = 0.85f + 0.15f * appear.value
+                scaleX = sc
+                scaleY = sc
+            },
+    ) {
+        androidx.compose.foundation.Canvas(Modifier.size(200.dp)) {
+            val stroke = 3.dp.toPx()
+            val inset = stroke / 2
+            val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+            val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+            drawArc(Color.White.copy(alpha = 0.12f), 0f, 360f, false, topLeft, arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            drawArc(accent, -90f, 360f * sweep.value, false, topLeft, arcSize,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("$battery%", color = Ink, fontSize = 40.sp, fontWeight = FontWeight.SemiBold)
+            Text("ładowanie", color = Quiet, fontSize = 13.sp)
         }
     }
 }
