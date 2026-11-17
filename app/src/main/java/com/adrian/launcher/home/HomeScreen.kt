@@ -1,5 +1,6 @@
 package com.adrian.launcher.home
 
+import android.view.View
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adrian.launcher.data.AppEntry
 import com.adrian.launcher.data.CalendarEvent
+import com.adrian.launcher.data.NO_WIDGET
 import com.adrian.launcher.data.PageId
 import com.adrian.launcher.data.WeatherNow
 import com.adrian.launcher.ui.AppIcon
@@ -74,6 +76,8 @@ fun HomeScreen(
     weatherHint: WeatherHint?,
     event: CalendarEvent?,
     calendarGranted: Boolean,
+    calendarWidgetId: Int,
+    createWidgetView: (Int) -> View?,
     isDefaultHome: Boolean,
     resetSignal: Int,
     actions: HomeActions,
@@ -123,10 +127,13 @@ fun HomeScreen(
                 ) { index ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         when (pages[index]) {
-                            PageId.CLOCK -> ClockPage(now, weather)
-                            PageId.WEATHER -> WeatherPage(now, weather, battery, weatherHint)
-                            PageId.DAY -> DayPage(now, name, event, calendarGranted, accent, actions.onRequestCalendar)
-                            PageId.DIAL -> DialPage(now, accent)
+                            PageId.CLOCK -> ClockWeatherPage(now, weather, weatherHint)
+                            PageId.CALENDAR -> {
+                                val card = @Composable {
+                                    CalendarCardPage(now, name, event, calendarGranted, accent, actions.onRequestCalendar)
+                                }
+                                if (calendarWidgetId == NO_WIDGET) card() else CalendarWidgetPage(calendarWidgetId, createWidgetView, card)
+                            }
                         }
                     }
                 }

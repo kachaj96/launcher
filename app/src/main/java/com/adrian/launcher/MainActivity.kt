@@ -2,6 +2,8 @@ package com.adrian.launcher
 
 import android.Manifest
 import android.app.role.RoleManager
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -46,12 +48,15 @@ import com.adrian.launcher.data.CalendarEvent
 import com.adrian.launcher.data.CalendarRepository
 import com.adrian.launcher.data.LauncherSettings
 import com.adrian.launcher.data.MAX_PINNED
+import com.adrian.launcher.data.NO_WIDGET
 import com.adrian.launcher.data.SettingsStore
 import com.adrian.launcher.data.WEATHER_MAX_AGE_MS
 import com.adrian.launcher.data.Wallpaper
 import com.adrian.launcher.data.WeatherNow
 import com.adrian.launcher.data.WeatherRepository
 import com.adrian.launcher.data.WeatherResult
+import com.adrian.launcher.data.WidgetChoice
+import com.adrian.launcher.data.Widgets
 import com.adrian.launcher.data.sortedByLabel
 import com.adrian.launcher.drawer.AppDrawer
 import com.adrian.launcher.home.HomeActions
@@ -82,6 +87,8 @@ private val DEFAULT_PINS = listOf(
     "com.android.settings",
 )
 
+private const val REQUEST_WIDGET_CONFIGURE = 4711
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var appsRepo: AppRepository
@@ -89,6 +96,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var wallpaper: Wallpaper
     private lateinit var weatherRepo: WeatherRepository
     private lateinit var calendarRepo: CalendarRepository
+    private lateinit var widgets: Widgets
+    /** Widget id waiting for the bind permission or its configuration screen. */
+    private var pendingWidgetId: Int = NO_WIDGET
     private var appsCallback: LauncherApps.Callback? = null
     private var weatherJob: Job? = null
 
@@ -132,6 +142,11 @@ class MainActivity : ComponentActivity() {
     private val importPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importSettings(uri)
     }
+    private val widgetBindRequest = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val id = pendingWidgetId
+        val info = widgets.info(id)
+        if (result.resultCode == RESULT_OK && info != null) configureOrCommitWidget(id, info) else abandonWidget(id)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -145,6 +160,7 @@ class MainActivity : ComponentActivity() {
         wallpaper = Wallpaper(this)
         weatherRepo = WeatherRepository(this)
         calendarRepo = CalendarRepository(this)
+        widgets = Widgets(this)
 
         appsCallback = appsRepo.registerChanges { reloadApps() }
         reloadApps()
@@ -179,6 +195,13 @@ class MainActivity : ComponentActivity() {
         val wallpaperBitmap by produceState<ImageBitmap?>(null, settings.wallpaperVersion) {
             value = withContext(Dispatchers.IO) { wallpaper.load()?.asImageBitmap() }
         }
+        val widgetChoices by produceState(emptyList<WidgetChoice>(), settingsOpen.value) {
+            if (settingsOpen.value) value = withContext(Dispatchers.IO) { widgets.choices() }
+        }
+        val currentWidget = remember(widgetChoices, settings.calendarWidgetId) {
+            val info = widgets.info(settings.calendarWidgetId)
+            if (info == null) null else widgetChoices.firstOrNull { it.info.provider == info.provider && it.info.profile == info.profile }
+        }
 
         val menuTarget = menuApp.value
         val renameTarget = renameApp.value
@@ -200,6 +223,8 @@ class MainActivity : ComponentActivity() {
                     weatherHint = weatherHint(settings),
                     event = nextEvent.value,
                     calendarGranted = calendarGranted.value,
+                    calendarWidgetId = settings.calendarWidgetId,
+                    createWidgetView = { id -> widgets.createView(this@MainActivity, id) },
                     isDefaultHome = isDefaultHome.value,
                     resetSignal = resetSignal.intValue,
                     actions = HomeActions(
@@ -248,6 +273,8 @@ class MainActivity : ComponentActivity() {
                             totalApps = apps.size,
                             version = appVersion(),
                         ),
+                        widgetChoices = widgetChoices,
+                        currentWidget = currentWidget,
                         actions = SettingsActions(
                             update = ::updateSettings,
                             updateWeather = ::updateWeatherSettings,
@@ -262,6 +289,7 @@ class MainActivity : ComponentActivity() {
                             onRequestCalendar = { calendarRequest.launch(Manifest.permission.READ_CALENDAR) },
                             onRefreshWeather = { refreshWeather(force = true) },
                             onRequestDefault = ::requestDefaultHome,
+                            onChooseWidget = ::chooseCalendarWidget,
                             onExport = { exportPicker.launch("launcher-ustawienia.json") },
                             onImport = { importPicker.launch(arrayOf("application/json", "text/plain", "*/*")) },
                             onClose = { settingsOpen.value = false },
@@ -341,6 +369,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        widgets.startListening()
+    }
+
+    override fun onStop() {
+        widgets.stopListening()
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         refreshSystemState()
@@ -362,6 +400,71 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSettings(transform: (LauncherSettings) -> LauncherSettings) {
         lifecycleScope.launch { settingsStore.update(transform) }
+    }
+
+    /**
+     * Calendar page widget. null = built-in card. A new widget id is bound (asking the user
+     * once if Android requires it), configured if the widget has a setup screen, and only
+     * then replaces the old one.
+     */
+    private fun chooseCalendarWidget(choice: WidgetChoice?) {
+        if (choice == null) {
+            lifecycleScope.launch {
+                val old = settingsStore.current().calendarWidgetId
+                settingsStore.update { it.copy(calendarWidgetId = NO_WIDGET) }
+                widgets.delete(old)
+            }
+            return
+        }
+        val id = widgets.allocate()
+        pendingWidgetId = id
+        if (widgets.bindIfAllowed(id, choice.info)) {
+            configureOrCommitWidget(id, choice.info)
+        } else {
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, choice.info.provider)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER_PROFILE, choice.info.profile)
+            widgetBindRequest.launch(intent)
+        }
+    }
+
+    private fun configureOrCommitWidget(id: Int, info: AppWidgetProviderInfo) {
+        if (info.configure != null) {
+            pendingWidgetId = id
+            val started = runCatching {
+                widgets.host.startAppWidgetConfigureActivityForResult(this, id, 0, REQUEST_WIDGET_CONFIGURE, null)
+            }.isSuccess
+            if (!started) commitWidget(id)
+        } else {
+            commitWidget(id)
+        }
+    }
+
+    private fun commitWidget(id: Int) {
+        pendingWidgetId = NO_WIDGET
+        lifecycleScope.launch {
+            val old = settingsStore.current().calendarWidgetId
+            settingsStore.update { it.copy(calendarWidgetId = id) }
+            if (old != id) widgets.delete(old)
+            Toast.makeText(this@MainActivity, "Widżet ustawiony na stronie kalendarza", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun abandonWidget(id: Int) {
+        pendingWidgetId = NO_WIDGET
+        widgets.delete(id)
+        Toast.makeText(this, "Widżet nie został dodany", Toast.LENGTH_SHORT).show()
+    }
+
+    @Deprecated("Needed for AppWidgetHost.startAppWidgetConfigureActivityForResult, which has no Activity Result API variant.")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        @Suppress("DEPRECATION")
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_WIDGET_CONFIGURE) {
+            val id = pendingWidgetId
+            if (resultCode == RESULT_OK) commitWidget(id) else abandonWidget(id)
+        }
     }
 
     private fun updateWeatherSettings(transform: (LauncherSettings) -> LauncherSettings) {

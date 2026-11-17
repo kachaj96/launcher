@@ -1,11 +1,11 @@
 package com.adrian.launcher.home
 
+import android.view.View
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -18,35 +18,34 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.adrian.launcher.data.CalendarEvent
 import com.adrian.launcher.data.WeatherNow
 import com.adrian.launcher.ui.Ink
 import com.adrian.launcher.ui.PolishDate
 import com.adrian.launcher.ui.Quiet
 import java.time.LocalDateTime
-import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
-/** What the weather page shows when there is no data, plus an optional fix action. */
+/** What the clock page shows when there is no weather, plus an optional fix action. */
 data class WeatherHint(val text: String, val actionLabel: String? = null, val onAction: (() -> Unit)? = null)
 
-private fun WeatherNow.shortLine(): String =
-    "${description}, ${temperature.roundToInt()}°" + if (place.isNotBlank()) " · $place" else ""
-
+/** Clock with today's date and the current weather underneath. */
 @Composable
-fun ClockPage(now: LocalDateTime, weather: WeatherNow?) {
-    Column(modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 36.dp)) {
+fun ClockWeatherPage(now: LocalDateTime, weather: WeatherNow?, hint: WeatherHint?) {
+    Column(modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 32.dp)) {
         Row(verticalAlignment = Alignment.Top) {
             Text(
                 text = now.hour.toString(),
@@ -71,64 +70,49 @@ fun ClockPage(now: LocalDateTime, weather: WeatherNow?) {
             letterSpacing = 1.sp,
             modifier = Modifier.padding(top = 8.dp),
         )
-        if (weather != null) {
-            Text(
-                text = weather.shortLine(),
-                color = Quiet,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Light,
-                modifier = Modifier.padding(top = 6.dp),
-            )
-        }
-    }
-}
 
-@Composable
-fun WeatherPage(now: LocalDateTime, weather: WeatherNow?, battery: Int, hint: WeatherHint?) {
-    Column(modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 40.dp)) {
+        Spacer(Modifier.height(16.dp))
         if (weather != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CloudGlyph()
+                Spacer(Modifier.width(10.dp))
+                Text("${weather.temperature.roundToInt()}°", color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(8.dp))
-                Text("${weather.temperature.roundToInt()}°", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
-                if (weather.place.isNotBlank()) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(weather.place, color = Quiet, fontSize = 15.sp, fontWeight = FontWeight.Light)
-                }
+                Text(
+                    text = weather.description + if (weather.place.isNotBlank()) " · ${weather.place}" else "",
+                    color = Ink,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Light,
+                    maxLines = 1,
+                )
             }
-        }
-        Text(
-            text = PolishDate.monthNominative(now),
-            color = Ink,
-            fontSize = 48.sp,
-            lineHeight = 52.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(top = 20.dp),
-        )
-        Column(modifier = Modifier.padding(top = 12.dp)) {
-            if (weather != null) {
-                Detail("${weather.description.replaceFirstChar { it.uppercase() }}, odczuwalna ${weather.apparent.roundToInt()}°")
-                Detail("Wilgotność ${weather.humidity}% · wiatr ${weather.windKmh.roundToInt()} km/h")
-            } else if (hint != null) {
-                Detail(hint.text)
+            Text(
+                text = "odczuwalna ${weather.apparent.roundToInt()}° · wilgotność ${weather.humidity}% · wiatr ${weather.windKmh.roundToInt()} km/h",
+                color = Quiet,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Light,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        } else if (hint != null) {
+            Text(hint.text, color = Quiet, fontSize = 14.sp, fontWeight = FontWeight.Light)
+            if (hint.actionLabel != null && hint.onAction != null) {
+                Text(
+                    text = hint.actionLabel,
+                    color = Ink,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clickable(onClick = hint.onAction)
+                        .padding(vertical = 12.dp),
+                )
             }
-            Detail("Bateria $battery%")
-        }
-        Box(
-            modifier = Modifier
-                .padding(top = 16.dp)
-                .width(44.dp)
-                .height(1.dp)
-                .background(Ink),
-        )
-        if (weather == null && hint?.actionLabel != null && hint.onAction != null) {
-            ActionLink(hint.actionLabel, hint.onAction)
         }
     }
 }
 
+/** Built-in calendar card: greeting, date and the next event from the phone's calendars. */
 @Composable
-fun DayPage(
+fun CalendarCardPage(
     now: LocalDateTime,
     name: String,
     event: CalendarEvent?,
@@ -188,107 +172,32 @@ fun DayPage(
 }
 
 /**
- * Hour, minutes in an accent capsule, and a ring of the following minutes curving to the
- * right. All numbers stay horizontal; only their positions follow the arc.
+ * The calendar widget the user picked in settings, hosted without any frame of its own so
+ * a transparent widget sits straight on the wallpaper. [createView] returns null when the
+ * widget is gone (app uninstalled), and the caller falls back to the built-in card.
  */
 @Composable
-fun DialPage(now: LocalDateTime, accent: Color) {
-    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-        val cx = (-40).dp
-        val cy = maxHeight / 2
-        val ring = 172.dp
-        val tickRadius = 208.dp
-        val m = now.minute
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            val c = Offset(cx.toPx(), cy.toPx())
-            for (k in -28..28) {
-                val a = Math.toRadians(k * 3.0)
-                val len = (if (k % 5 == 0) 10.dp else 5.dp).toPx()
-                val r = tickRadius.toPx()
-                val dir = Offset(cos(a).toFloat(), -sin(a).toFloat())
-                val start = c + dir * (r - len / 2)
-                val end = c + dir * (r + len / 2)
-                val alpha = (0.9f - abs(k) / 30f).coerceAtLeast(0.12f)
-                drawLine(Ink.copy(alpha = alpha), start, end, strokeWidth = 1.2.dp.toPx())
-            }
-        }
-
-        for (d in -6..6) {
-            if (d == 0) continue
-            val a = Math.toRadians(d * 13.0)
-            val value = ((m + 5 * d) % 60 + 60) % 60
-            val x = cx + ring * cos(a).toFloat()
-            val y = cy - ring * sin(a).toFloat()
-            Text(
-                text = "%02d".format(value),
-                color = Ink.copy(alpha = (1f - abs(d) / 6.5f).coerceAtLeast(0.15f)),
-                fontSize = (17 - abs(d)).coerceAtLeast(11).sp,
-                fontWeight = FontWeight.Light,
-                modifier = Modifier.anchorAt(x, y, 0.5f),
+fun CalendarWidgetPage(widgetId: Int, createView: (Int) -> View?, fallback: @Composable () -> Unit) {
+    key(widgetId) {
+        val view = remember(widgetId) { createView(widgetId) }
+        if (view == null) {
+            fallback()
+        } else {
+            AndroidView(
+                factory = { view },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp),
             )
         }
-
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .anchorAt(cx + ring, cy, 0.5f)
-                .size(width = 58.dp, height = 34.dp)
-                .border(1.5.dp, accent, RoundedCornerShape(17.dp)),
-        ) {
-            Text("%02d".format(m), color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-        }
-
-        Text(
-            text = "%02d".format(now.hour),
-            color = Ink,
-            fontSize = 64.sp,
-            fontWeight = FontWeight.Medium,
-            modifier = Modifier.anchorAt(cx + ring - 40.dp, cy, 1f),
-        )
-
-        Column(modifier = Modifier.anchorAt(cx + ring + 50.dp, cy, 0f)) {
-            Text(
-                "${now.dayOfMonth} ${PolishDate.monthShort(now).uppercase()} ${now.year}",
-                color = Quiet, fontSize = 11.sp, letterSpacing = 1.2.sp,
-            )
-            Text(PolishDate.dayLong(now).uppercase(), color = Ink, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 1.2.sp)
-        }
     }
-}
-
-/** Places the element so that the point (x, y) sits at its vertical centre and at [hAlign] of its width. */
-private fun Modifier.anchorAt(x: Dp, y: Dp, hAlign: Float): Modifier = layout { measurable, constraints ->
-    val p = measurable.measure(constraints.copy(minWidth = 0, minHeight = 0))
-    layout(0, 0) {
-        p.place((x.roundToPx() - p.width * hAlign).roundToInt(), y.roundToPx() - p.height / 2)
-    }
-}
-
-@Composable
-private fun Detail(text: String) {
-    Text(text, color = Color(0xFFD0D0D0), fontSize = 14.sp, fontWeight = FontWeight.Light, lineHeight = 22.sp)
-}
-
-@Composable
-private fun ActionLink(label: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        color = Ink,
-        fontSize = 14.sp,
-        fontWeight = FontWeight.Medium,
-        modifier = Modifier
-            .padding(top = 8.dp)
-            .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
-    )
 }
 
 @Composable
 private fun CloudGlyph() {
-    Canvas(modifier = Modifier.size(20.dp)) {
+    Canvas(modifier = Modifier.size(22.dp)) {
         val s = size.width / 24f
-        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
+        val stroke = Stroke(width = 1.5.dp.toPx())
         drawCircle(Ink, radius = 4.5f * s, center = Offset(9f * s, 13f * s), style = stroke)
         drawCircle(Ink, radius = 5.5f * s, center = Offset(14.5f * s, 11f * s), style = stroke)
         drawLine(Ink, Offset(6f * s, 18f * s), Offset(19f * s, 18f * s), strokeWidth = 1.5.dp.toPx())
@@ -303,9 +212,9 @@ private fun CalendarGlyph(color: Color) {
         drawRoundRect(
             color,
             topLeft = Offset(4f * s, 6f * s),
-            size = androidx.compose.ui.geometry.Size(16f * s, 14f * s),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(2f * s),
-            style = androidx.compose.ui.graphics.drawscope.Stroke(width = w),
+            size = Size(16f * s, 14f * s),
+            cornerRadius = CornerRadius(2f * s),
+            style = Stroke(width = w),
         )
         drawLine(color, Offset(4f * s, 10f * s), Offset(20f * s, 10f * s), strokeWidth = w)
         drawLine(color, Offset(8f * s, 3f * s), Offset(8f * s, 7f * s), strokeWidth = w)

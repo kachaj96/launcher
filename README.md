@@ -12,7 +12,7 @@ Powrót do One UI Home: Ustawienia → Aplikacje → Wybierz aplikacje domyślne
 
 ## Co umie
 
-- Ekran główny: własna tapeta z czarnym gradientem, karuzela (zegar, pogoda, dzień z kalendarzem, tarcza), 6 przypiętych aplikacji
+- Ekran główny: własna tapeta z czarnym gradientem, karuzela: zegar z pogodą i kalendarz (widżet aplikacji Kalendarz albo wbudowana karta), 6 przypiętych aplikacji
 - Gesty: w górę szuflada, w dół powiadomienia, przytrzymanie ustawienia
 - Szuflada: alfabet przy prawej krawędzi, wyszukiwarka bez polskich znaków, ostatnio używane
 - Przytrzymanie aplikacji: przypnij, zmień nazwę, ukryj, informacje, odinstaluj

@@ -110,6 +110,13 @@ Odstępstwa od planu:
 - APK release nie jest podpisywany osobnym kluczem. Stały klucz debug w repo rozwiązuje praktyczny problem (aktualizacje bez utraty ustawień); osobny klucz wymaga sekretu w GitHub.
 - Kopia ustawień to eksport/import pliku JSON z ekranu ustawień (bez tapety).
 
+## Zmiany po pierwszym teście (17 listopada 2026)
+
+- Karuzela ma 2 strony: „Zegar i pogoda” (zegar, data i pogoda na jednej stronie) oraz „Kalendarz”.
+- Tarcza usunięta.
+- Strona „Kalendarz” pokazuje widżet wybrany w ustawieniach (domyślnie widżety aplikacji Kalendarz, `com.kachaj96.kalendarz`: Najbliższe, Dziś, Tydzień, Miesiąc) albo wbudowaną kartę z kalendarza telefonu.
+- Widżet jest hostowany bez ramki. Wygląd (przezroczystość, kolor tekstu) ustawia aplikacja Kalendarz.
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

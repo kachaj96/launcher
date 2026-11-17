@@ -22,6 +22,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import com.adrian.launcher.data.AppEntry
 import com.adrian.launcher.data.LauncherSettings
 import com.adrian.launcher.data.PageConfig
+import com.adrian.launcher.data.WidgetChoice
 import com.adrian.launcher.ui.AccentOptions
 import com.adrian.launcher.ui.AppIcon
 import com.adrian.launcher.ui.Chevron
@@ -75,6 +77,7 @@ class SettingsActions(
     val onRequestCalendar: () -> Unit,
     val onRefreshWeather: () -> Unit,
     val onRequestDefault: () -> Unit,
+    val onChooseWidget: (WidgetChoice?) -> Unit,
     val onExport: () -> Unit,
     val onImport: () -> Unit,
     val onClose: () -> Unit,
@@ -87,6 +90,8 @@ fun SettingsScreen(
     wallpaper: ImageBitmap?,
     accent: Color,
     status: SettingsStatus,
+    widgetChoices: List<WidgetChoice>,
+    currentWidget: WidgetChoice?,
     actions: SettingsActions,
 ) {
     val byKey = remember(allApps) { allApps.associateBy { it.key } }
@@ -159,6 +164,49 @@ fun SettingsScreen(
                     }
                 }
                 Hint("Po wygaszeniu ekranu karuzela wraca do zegara.")
+            }
+
+            run {
+                Section("KALENDARZ")
+                Hint(
+                    if (currentWidget == null) "Teraz: wbudowana karta z kalendarza telefonu."
+                    else "Teraz: widżet ${currentWidget.appLabel}: ${currentWidget.label}.",
+                )
+                ChoiceRow(
+                    title = "Wbudowana karta",
+                    subtitle = "data, powitanie, najbliższe wydarzenie",
+                    selected = currentWidget == null,
+                    onClick = { actions.onChooseWidget(null) },
+                )
+                val (own, others) = widgetChoices.partition { it.fromCalendarApp }
+                if (own.isEmpty()) {
+                    Hint("Nie widzę widżetów aplikacji Kalendarz. Jest zainstalowana?")
+                }
+                own.forEach { c ->
+                    ChoiceRow(
+                        title = c.label,
+                        subtitle = c.appLabel,
+                        selected = currentWidget?.key == c.key,
+                        onClick = { actions.onChooseWidget(c) },
+                    )
+                }
+                var showOthers by remember { mutableStateOf(false) }
+                if (others.isNotEmpty()) {
+                    SmallAction(if (showOthers) "Ukryj widżety innych aplikacji" else "Widżety innych aplikacji (${others.size})") {
+                        showOthers = !showOthers
+                    }
+                }
+                if (showOthers) {
+                    others.forEach { c ->
+                        ChoiceRow(
+                            title = c.label,
+                            subtitle = c.appLabel,
+                            selected = currentWidget?.key == c.key,
+                            onClick = { actions.onChooseWidget(c) },
+                        )
+                    }
+                }
+                Hint("Wygląd widżetu ustawia jego aplikacja. W Kalendarzu ustaw przezroczystość 0% i jasny tekst, wtedy widżet leży wprost na tapecie.")
             }
 
             run {
@@ -304,6 +352,30 @@ private fun <T> List<T>.move(from: Int, to: Int): List<T> {
     val item = m.removeAt(from)
     m.add(to, item)
     return m
+}
+
+@Composable
+private fun ChoiceRow(title: String, subtitle: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(18.dp)
+                .border(1.5.dp, if (selected) MaterialTheme.colorScheme.primary else Quiet, CircleShape)
+                .padding(4.dp)
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent, CircleShape),
+        )
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, color = Ink, fontSize = 15.sp, maxLines = 1)
+            Text(subtitle, color = Quiet, fontSize = 12.sp, maxLines = 1)
+        }
+    }
 }
 
 @Composable

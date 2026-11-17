@@ -14,11 +14,18 @@ import org.json.JSONObject
 private val Context.dataStore by preferencesDataStore(name = "launcher")
 
 enum class PageId(val title: String) {
-    CLOCK("Zegar"),
-    WEATHER("Pogoda"),
-    DAY("Dzień i kalendarz"),
-    DIAL("Tarcza"),
+    CLOCK("Zegar i pogoda"),
+    CALENDAR("Kalendarz"),
 }
+
+/** Page ids from older versions: the day page became the calendar page, weather merged into the clock, the dial is gone. */
+private fun pageIdOf(name: String): PageId? = when (name) {
+    "DAY" -> PageId.CALENDAR
+    else -> runCatching { PageId.valueOf(name) }.getOrNull()
+}
+
+/** No calendar widget chosen: the calendar page shows the built-in card. */
+const val NO_WIDGET = -1
 
 data class PageConfig(val id: PageId, val enabled: Boolean)
 
@@ -39,6 +46,7 @@ data class LauncherSettings(
     val weatherCity: String = "",
     val weatherCache: String = "",
     val swipeDownBroken: Boolean = false,
+    val calendarWidgetId: Int = NO_WIDGET,
 ) {
     val enabledPages: List<PageId>
         get() = pages.filter { it.enabled }.map { it.id }.ifEmpty { listOf(PageId.CLOCK) }
@@ -68,7 +76,9 @@ class SettingsStore(private val context: Context) {
 
     suspend fun importJson(json: String) {
         val imported = decodeJson(JSONObject(json))
-        update { old -> imported.copy(weatherCache = old.weatherCache, lastLaunch = old.lastLaunch) }
+        update { old ->
+            imported.copy(weatherCache = old.weatherCache, lastLaunch = old.lastLaunch, calendarWidgetId = old.calendarWidgetId)
+        }
     }
 
     private fun decode(prefs: Preferences): LauncherSettings {
@@ -81,10 +91,10 @@ class SettingsStore(private val context: Context) {
         val pages = o.optJSONArray("pages")?.let { arr ->
             (0 until arr.length()).mapNotNull { i ->
                 val p = arr.getJSONObject(i)
-                val id = runCatching { PageId.valueOf(p.getString("id")) }.getOrNull() ?: return@mapNotNull null
+                val id = pageIdOf(p.getString("id")) ?: return@mapNotNull null
                 PageConfig(id, p.optBoolean("enabled", true))
             }
-        }.orEmpty()
+        }.orEmpty().distinctBy { it.id }
         // Keep any page added in a later version, appended at the end.
         val allPages = pages + PageId.entries.filter { id -> pages.none { it.id == id } }.map { PageConfig(it, true) }
 
@@ -103,6 +113,7 @@ class SettingsStore(private val context: Context) {
             weatherCity = o.optString("weatherCity", d.weatherCity),
             weatherCache = o.optString("weatherCache", d.weatherCache),
             swipeDownBroken = o.optBoolean("swipeDownBroken", d.swipeDownBroken),
+            calendarWidgetId = o.optInt("calendarWidgetId", d.calendarWidgetId),
         )
     }
 
@@ -121,6 +132,7 @@ class SettingsStore(private val context: Context) {
         put("weatherCity", s.weatherCity)
         put("weatherCache", s.weatherCache)
         put("swipeDownBroken", s.swipeDownBroken)
+        put("calendarWidgetId", s.calendarWidgetId)
     }
 }
 

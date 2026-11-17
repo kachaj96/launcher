@@ -14,7 +14,7 @@ Minimalistyczny launcher na Androida (Samsung, Android 14-16), budowany etapami.
 ## Struktura
 
 - `MainActivity.kt`: stan ekranu, nakładki (szuflada, ustawienia, menu aplikacji), uprawnienia, pickery plików
-- `data/`: aplikacje i ikony, ustawienia, tapeta, pogoda, kalendarz
+- `data/`: aplikacje i ikony, ustawienia, tapeta, pogoda, kalendarz, host widżetu kalendarza
 - `home/`: ekran główny i strony karuzeli
 - `drawer/`: szuflada z alfabetem
 - `settings/`: ekran ustawień
@@ -41,4 +41,4 @@ Nakładki pełnoekranowe muszą mieć `Modifier.blockTouchesBelow()`, inaczej do
 
 ## Wycięte z v1 (nie dodawać)
 
-Zegar słowny, dwuklik blokujący ekran (i usługa dostępności), osobny tryb czuwania, paczki ikon, widżety innych aplikacji, foldery.
+Zegar słowny, tarcza z pierścieniem minut, dwuklik blokujący ekran (i usługa dostępności), osobny tryb czuwania, paczki ikon, foldery. Widżety innych aplikacji tylko jako jeden widżet na stronie kalendarza (`data/Widgets.kt`), nigdzie indziej.
