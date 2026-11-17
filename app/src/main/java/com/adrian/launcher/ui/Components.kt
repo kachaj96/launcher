@@ -23,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -32,6 +33,17 @@ import androidx.core.content.ContextCompat
 import com.adrian.launcher.data.AppEntry
 import java.time.LocalDateTime
 import kotlinx.coroutines.delay
+
+/**
+ * Makes an overlay a hit target everywhere, so touches on its empty areas do not fall
+ * through to the home screen underneath (and e.g. launch a pinned app). Children still
+ * get every event first; nothing is consumed here.
+ */
+fun Modifier.blockTouchesBelow(): Modifier = pointerInput(Unit) {
+    awaitPointerEventScope {
+        while (true) awaitPointerEvent()
+    }
+}
 
 /** Monochrome app icon, or the first letter in a thin circle when the app has no monochrome layer. */
 @Composable

@@ -250,6 +250,7 @@ class MainActivity : ComponentActivity() {
                         ),
                         actions = SettingsActions(
                             update = ::updateSettings,
+                            updateWeather = ::updateWeatherSettings,
                             onPickWallpaper = {
                                 wallpaperPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
@@ -361,6 +362,15 @@ class MainActivity : ComponentActivity() {
 
     private fun updateSettings(transform: (LauncherSettings) -> LauncherSettings) {
         lifecycleScope.launch { settingsStore.update(transform) }
+    }
+
+    private fun updateWeatherSettings(transform: (LauncherSettings) -> LauncherSettings) {
+        lifecycleScope.launch {
+            settingsStore.update { transform(it).copy(weatherCache = "") }
+            weatherProblem.value = null
+            weatherJob?.cancel()
+            refreshWeather(force = true)
+        }
     }
 
     private fun reloadApps() {

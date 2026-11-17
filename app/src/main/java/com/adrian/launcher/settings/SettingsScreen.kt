@@ -53,6 +53,7 @@ import com.adrian.launcher.ui.Faint
 import com.adrian.launcher.ui.Ink
 import com.adrian.launcher.ui.Line
 import com.adrian.launcher.ui.Quiet
+import com.adrian.launcher.ui.blockTouchesBelow
 
 class SettingsStatus(
     val isDefaultHome: Boolean,
@@ -66,6 +67,8 @@ class SettingsStatus(
 
 class SettingsActions(
     val update: ((LauncherSettings) -> LauncherSettings) -> Unit,
+    /** Saves a weather setting, then refetches with it. */
+    val updateWeather: ((LauncherSettings) -> LauncherSettings) -> Unit,
     val onPickWallpaper: () -> Unit,
     val onClearWallpaper: () -> Unit,
     val onRequestLocation: () -> Unit,
@@ -93,6 +96,7 @@ fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .blockTouchesBelow()
             .systemBarsPadding()
             .imePadding(),
     ) {
@@ -229,7 +233,7 @@ fun SettingsScreen(
                 Section("POGODA")
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.height(48.dp)) {
                     Text("Lokalizacja z GPS", color = Ink, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                    Switch(checked = settings.weatherUseGps, onCheckedChange = { on -> update { it.copy(weatherUseGps = on) } })
+                    Switch(checked = settings.weatherUseGps, onCheckedChange = { on -> actions.updateWeather { it.copy(weatherUseGps = on) } })
                 }
                 if (settings.weatherUseGps && !status.locationGranted) {
                     SmallAction("Zezwól na lokalizację", actions.onRequestLocation)
@@ -238,7 +242,7 @@ fun SettingsScreen(
                 TextSetting(
                     value = settings.weatherCity,
                     placeholder = "np. Poznań",
-                    onDone = { v -> update { it.copy(weatherCity = v, weatherCache = "") }; actions.onRefreshWeather() },
+                    onDone = { v -> actions.updateWeather { it.copy(weatherCity = v) } },
                 )
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 4.dp)) {
                     Text(status.weatherLine, color = Quiet, fontSize = 13.sp, modifier = Modifier.weight(1f))

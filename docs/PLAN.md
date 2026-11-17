@@ -97,6 +97,19 @@ Pakiety: `data/`, `home/`, `carousel/` (plik na stronę), `drawer/`, `settings/`
 | Ikony mono | Część aplikacji nie ma warstwy monochrome | Litera w kółku; w etapie 2 sprawdzamy skalę na telefonie |
 | Gesty One UI | Animacje powrotu do ekranu głównego bywają mniej płynne | Test już w etapie 0 |
 
+## Stan realizacji (17 listopada 2026)
+
+Etapy 0-6 są zrobione i zbudowane w CI. Etap 7 jest zrobiony częściowo, czeka na tydzień testów na telefonie.
+
+Odstępstwa od planu:
+
+- Automatyczne uruchomienie przy jednym trafieniu działa dopiero od 2 wpisanych znaków.
+- Kolejność stron karuzeli i przypiętych aplikacji zmienia się strzałkami w ustawieniach, nie przeciąganiem.
+- Menu aplikacji to panel na środku ekranu, nie menu przy wierszu.
+- Pogoda używa `org.json` zamiast kotlinx.serialization (mniej zależności).
+- APK release nie jest podpisywany osobnym kluczem. Stały klucz debug w repo rozwiązuje praktyczny problem (aktualizacje bez utraty ustawień); osobny klucz wymaga sekretu w GitHub.
+- Kopia ustawień to eksport/import pliku JSON z ekranu ustawień (bez tapety).
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

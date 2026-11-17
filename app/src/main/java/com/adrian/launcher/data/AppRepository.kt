@@ -43,9 +43,11 @@ fun String.foldForSearch(): String =
         .replace(Regex("\\p{Mn}+"), "")
         .replace('ł', 'l')
 
-val appCollator: Collator = Collator.getInstance(Polish).apply { strength = Collator.SECONDARY }
-
-fun List<AppEntry>.sortedByLabel(): List<AppEntry> = sortedWith { a, b -> appCollator.compare(a.label, b.label) }
+/** A fresh Collator per sort: Collator instances are not thread-safe. */
+fun List<AppEntry>.sortedByLabel(): List<AppEntry> {
+    val collator = Collator.getInstance(Polish).apply { strength = Collator.SECONDARY }
+    return sortedWith { a, b -> collator.compare(a.label, b.label) }
+}
 
 class AppRepository(private val context: Context) {
 

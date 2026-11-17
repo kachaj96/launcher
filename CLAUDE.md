@@ -6,17 +6,29 @@ Minimalistyczny launcher na Androida (Samsung, Android 14-16), budowany etapami.
 
 - Kotlin, Jetpack Compose, jedna `MainActivity` (filtr `HOME` + `DEFAULT`, `singleTask`)
 - minSdk 33, compileSdk/targetSdk 35 (podbić do 36 przy aktualizacji AGP)
-- Stan i ustawienia: DataStore. Bez Room, bez frameworka DI.
-- Lista aplikacji: `LauncherApps`, nie `PackageManager.queryIntentActivities`
-- Pogoda: Open-Meteo + kotlinx.serialization, cache 30 min
-- Font: Outfit (dołączony jako zasób w `res/font`, nie pobierany z sieci)
+- Stan i ustawienia: jeden dokument JSON w DataStore (`data/SettingsStore.kt`, `LauncherSettings`). Nowe pole = pole w data class + `encode`/`decodeJson` z wartością domyślną. Bez Room, bez frameworka DI.
+- Lista aplikacji: `LauncherApps`, nie `PackageManager.queryIntentActivities`. Manifest musi mieć `<queries>` dla `MAIN/LAUNCHER`, inaczej Android 11+ ukrywa zainstalowane aplikacje.
+- Pogoda: Open-Meteo przez `HttpURLConnection` + `org.json` (wbudowane, bez kotlinx.serialization), cache 30 min w ustawieniach
+- Font: Outfit (OFL, licencja w `licenses/`), dołączony w `res/font`
+
+## Struktura
+
+- `MainActivity.kt`: stan ekranu, nakładki (szuflada, ustawienia, menu aplikacji), uprawnienia, pickery plików
+- `data/`: aplikacje i ikony, ustawienia, tapeta, pogoda, kalendarz
+- `home/`: ekran główny i strony karuzeli
+- `drawer/`: szuflada z alfabetem
+- `settings/`: ekran ustawień
+- `system/`: ukryte API (panel powiadomień przez refleksję)
+- `ui/`: kolory, font, wspólne komponenty, menu aplikacji
+
+Nakładki pełnoekranowe muszą mieć `Modifier.blockTouchesBelow()`, inaczej dotyk w pustym miejscu trafia do ekranu głównego pod spodem.
 
 ## Build
 
 - Lokalnie nie ma Android SDK. APK buduje GitHub Actions (`.github/workflows/build.yml`) przy każdym pushu do `main`; artefakt `launcher-debug-<nr>`.
 - Gradle jest instalowany w workflow (`gradle/actions/setup-gradle`, wersja 8.11.1). Wrapper można dodać później.
 - Klucz debug jest w `keystore/debug.keystore`, żeby kolejne APK instalowały się na poprzednie bez utraty ustawień. Nie zmieniaj go.
-- Po pushu sprawdź wynik workflow. Czerwony build = napraw, zanim zaczniesz coś nowego.
+- Po pushu sprawdź wynik workflow. Czerwony build = napraw, zanim zaczniesz coś nowego. Błędy kompilacji są w adnotacjach przebiegu (krok „Report compile errors”).
 
 ## Zasady
 

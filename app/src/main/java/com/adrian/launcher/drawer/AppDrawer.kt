@@ -58,6 +58,7 @@ import com.adrian.launcher.data.AppEntry
 import com.adrian.launcher.data.foldForSearch
 import com.adrian.launcher.ui.AppIcon
 import com.adrian.launcher.ui.Chevron
+import com.adrian.launcher.ui.blockTouchesBelow
 import com.adrian.launcher.ui.Faint
 import com.adrian.launcher.ui.Ink
 import com.adrian.launcher.ui.Outfit
@@ -130,6 +131,7 @@ fun AppDrawer(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.94f))
+            .blockTouchesBelow()
             .systemBarsPadding()
             .imePadding(),
     ) {
