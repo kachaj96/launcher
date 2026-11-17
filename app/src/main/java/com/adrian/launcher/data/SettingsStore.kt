@@ -56,6 +56,8 @@ data class LauncherSettings(
     val searchInBrave: Boolean = true,
     val searchShowsApps: Boolean = true,
     val calculator: Boolean = true,
+    /** "Zapytaj Claude" row in the search results. */
+    val askClaude: Boolean = true,
 
     // Drawer
     val drawerAutoLaunch: Boolean = true,
@@ -201,6 +203,7 @@ class SettingsStore(private val context: Context) {
             searchInBrave = o.optBoolean("searchInBrave", d.searchInBrave),
             searchShowsApps = o.optBoolean("searchShowsApps", d.searchShowsApps),
             calculator = o.optBoolean("calculator", d.calculator),
+            askClaude = o.optBoolean("askClaude", d.askClaude),
             drawerAutoLaunch = o.optBoolean("drawerAutoLaunch", d.drawerAutoLaunch),
             showRecent = o.optBoolean("showRecent", d.showRecent),
             nowPlaying = o.optBoolean("nowPlaying", d.nowPlaying),
@@ -258,6 +261,7 @@ class SettingsStore(private val context: Context) {
         put("searchInBrave", s.searchInBrave)
         put("searchShowsApps", s.searchShowsApps)
         put("calculator", s.calculator)
+        put("askClaude", s.askClaude)
         put("drawerAutoLaunch", s.drawerAutoLaunch)
         put("showRecent", s.showRecent)
         put("nowPlaying", s.nowPlaying)

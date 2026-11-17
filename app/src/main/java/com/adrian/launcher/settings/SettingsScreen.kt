@@ -357,6 +357,11 @@ private fun Ctx.SearchPage() {
     Section("PODCZAS PISANIA")
     SwitchRow("Aplikacje w wynikach", "pasujące aplikacje nad paskiem, jak Spotlight", s.searchShowsApps) { on -> update { it.copy(searchShowsApps = on) } }
     SwitchRow("Kalkulator", "„23*4” pokazuje wynik, stuknięcie kopiuje", s.calculator) { on -> update { it.copy(calculator = on) } }
+    SwitchRow(
+        "Zapytaj Claude",
+        "wiersz w wynikach wysyła tekst do aplikacji Claude (i do schowka)",
+        s.askClaude,
+    ) { on -> update { it.copy(askClaude = on) } }
     Hint("Aparat w pasku: stuknięcie otwiera Aparat, przytrzymanie Google Lens. Ikona obok otwiera galerię.")
 }
 

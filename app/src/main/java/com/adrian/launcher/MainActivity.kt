@@ -115,6 +115,7 @@ private val DEFAULT_PINS = listOf(
 
 private const val REQUEST_WIDGET_CONFIGURE = 4711
 private const val BRAVE_PACKAGE = "com.brave.browser"
+private const val CLAUDE_PACKAGE = "com.anthropic.claude"
 private const val LENS_PACKAGE = "com.google.ar.lens"
 private const val GOOGLE_APP_PACKAGE = "com.google.android.googlequicksearchbox"
 private val EVENING_ACCENT = Color(0xFFFF6B4A)
@@ -253,6 +254,7 @@ class MainActivity : ComponentActivity() {
         // Focus hides its apps from the home screen and drawer; search still finds them.
         val focusHidden = if (focus) settings.focusApps else emptySet()
         val battery by rememberBatteryLevel()
+        val claudeInstalled = remember(apps) { apps.any { it.packageName == CLAUDE_PACKAGE } }
         val visible = remember(renamed, settings.hidden, focusHidden) {
             renamed.filter { it.key !in settings.hidden && it.key !in focusHidden }
         }
@@ -328,6 +330,8 @@ class MainActivity : ComponentActivity() {
                         placeholder = "Szukaj w ${settings.searchEngine.title}",
                         onCopy = ::copyToClipboard,
                         suggestions = suggestions,
+                        engineTitle = settings.searchEngine.title,
+                        onAskClaude = if (settings.askClaude && claudeInstalled) ::askClaude else null,
                     ),
                     actions = HomeActions(
                         onLaunch = ::launchApp,
@@ -793,6 +797,29 @@ class MainActivity : ComponentActivity() {
                 if (app != null) launchApp(app, null)
                 else Toast.makeText(this, "Aplikacji z gestu nie ma już na telefonie", Toast.LENGTH_SHORT).show()
             }
+        }
+    }
+
+    /**
+     * Sends the question to the Claude app. Claude may put shared text into the open
+     * conversation instead of a new one, so the text also goes to the clipboard.
+     */
+    private fun askClaude(text: String) {
+        copyToClipboard(text)
+        val share = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+            .setPackage(CLAUDE_PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val shared = runCatching { startActivity(share) }.isSuccess
+        if (!shared) {
+            val opened = packageManager.getLaunchIntentForPackage(CLAUDE_PACKAGE)
+                ?.let { runCatching { startActivity(it) }.isSuccess } ?: false
+            Toast.makeText(
+                this,
+                if (opened) "Pytanie jest w schowku, wklej je w Claude" else "Nie znalazłem aplikacji Claude",
+                Toast.LENGTH_SHORT,
+            ).show()
         }
     }
 

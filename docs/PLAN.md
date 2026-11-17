@@ -141,6 +141,10 @@ Odstępstwa od planu:
 - Propozycje (wariant B): po stuknięciu w pusty pasek 4 aplikacje dopasowane do pory dnia i typu dnia, z historii uruchomień (ostatnie 400, nie trafia do kopii ustawień).
 - Latarka jako akcja gestu (domyślnie dwuklik). Pierścień ładowania po podłączeniu ładowarki.
 
+## Wersja 1.3 (17 listopada 2026)
+
+- „Zapytaj Claude” w wynikach wyszukiwania: tekst idzie do aplikacji Claude (`com.anthropic.claude`) przez `ACTION_SEND` i zawsze do schowka. Claude potrafi wstawić udostępniony tekst do otwartej rozmowy zamiast nowej, schowek to zapas. Wiersz znika, gdy Claude nie jest zainstalowany.
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

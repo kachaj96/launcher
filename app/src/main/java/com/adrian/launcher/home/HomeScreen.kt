@@ -42,6 +42,7 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -128,6 +129,10 @@ class SpotlightConfig(
     val onCopy: (String) -> Unit,
     /** Apps usually opened at this time; shown when the pill is focused and empty. */
     val suggestions: List<AppEntry> = emptyList(),
+    /** Engine name for the web row ("Google"). */
+    val engineTitle: String = "Google",
+    /** Sends the text to the Claude app; null when off or Claude is not installed. */
+    val onAskClaude: ((String) -> Unit)? = null,
 )
 
 private enum class DragAxis { NONE, HORIZONTAL, UP, DOWN }
@@ -364,6 +369,13 @@ fun HomeScreen(
                         query = ""
                         focusManager.clearFocus()
                     },
+                    onAskClaude = spotlight.onAskClaude?.let { ask ->
+                        {
+                            ask(trimmed)
+                            query = ""
+                            focusManager.clearFocus()
+                        }
+                    },
                 )
             }
             SearchPill(
@@ -493,6 +505,7 @@ private fun SpotlightResults(
     config: SpotlightConfig,
     onLaunch: (AppEntry, Rect?) -> Unit,
     onSearch: () -> Unit,
+    onAskClaude: (() -> Unit)?,
 ) {
     val folded = remember(query) { query.foldForSearch() }
     val apps = remember(folded, config.apps, config.showApps) {
@@ -538,6 +551,26 @@ private fun SpotlightResults(
                 Text(app.label, color = Ink, fontSize = 16.sp, maxLines = 1)
             }
         }
+        if (apps.isNotEmpty() || result != null) {
+            Box(Modifier.padding(horizontal = 18.dp, vertical = 4.dp).fillMaxWidth().height(1.dp).background(Line))
+        }
+        if (onAskClaude != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bouncyClick(pressedScale = 0.98f) { onAskClaude() }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                ResultGlyph(CHAT_PATH, MaterialTheme.colorScheme.primary)
+                Spacer(Modifier.width(16.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Zapytaj Claude", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text("„$query”", color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            Box(Modifier.padding(horizontal = 18.dp).fillMaxWidth().height(1.dp).background(Line))
+        }
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
@@ -546,7 +579,9 @@ private fun SpotlightResults(
                 .bouncyClick(pressedScale = 0.98f) { onSearch() }
                 .padding(horizontal = 18.dp),
         ) {
-            Text("Szukaj „$query” w sieci", color = Quiet, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            ResultGlyph(GLOBE_PATH, Quiet)
+            Spacer(Modifier.width(16.dp))
+            Text("Szukaj w ${config.engineTitle}", color = Quiet, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -879,6 +914,27 @@ private fun ChargingRing(signal: Int, battery: Int, accent: Color) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("$battery%", color = Ink, fontSize = 40.sp, fontWeight = FontWeight.SemiBold)
             Text("ładowanie", color = Quiet, fontSize = 13.sp)
+        }
+    }
+}
+
+private const val CHAT_PATH = "M4 5h16v11H9l-5 4zM8 9.5h8M8 12.5h5"
+private const val GLOBE_PATH = "M12 3a9 9 0 1 0 0 18a9 9 0 1 0 0-18M3 12h18M12 3c3.2 3 3.2 15 0 18M12 3c-3.2 3-3.2 15 0 18"
+
+@Composable
+private fun ResultGlyph(path: String, color: Color) {
+    val parsed = remember(path) { androidx.compose.ui.graphics.vector.PathParser().parsePathString(path).toPath() }
+    androidx.compose.foundation.Canvas(Modifier.size(22.dp)) {
+        val k = size.width / 24f
+        androidx.compose.ui.graphics.drawscope.scale(k, k, pivot = androidx.compose.ui.geometry.Offset.Zero) {
+            drawPath(
+                parsed, color,
+                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                    width = 1.6.dp.toPx() / k,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
         }
     }
 }
