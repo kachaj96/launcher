@@ -474,8 +474,9 @@ private fun Ctx.PermissionsPage() {
     StatusRow("Powiadomienia (odtwarzanie, kropki)", status.notificationAccess, actions.onRequestNotificationAccess)
     StatusRow("Skróty aplikacji", status.shortcutsAvailable, actions.onRequestDefault)
     Hint(
-        "Jeśli Android blokuje dostęp do powiadomień dla aplikacji spoza Sklepu Play, otwórz " +
-            "Ustawienia > Aplikacje > Launcher > ⋮ > Zezwól na ograniczone ustawienia i spróbuj ponownie. " +
+        "Dostęp do powiadomień to osobna lista w ustawieniach telefonu (szukaj: „dostęp do powiadomień”), " +
+            "nie przełącznik „Zezwalaj na powiadomienia”. Jeśli przełącznik Launchera jest zablokowany: " +
+            "Ustawienia > Aplikacje > Launcher > ⋮ > Zezwól na ograniczone ustawienia, potem włącz go ponownie. " +
             "Skróty aplikacji działają tylko, gdy launcher jest domyślny.",
     )
 }

@@ -718,12 +718,17 @@ class MainActivity : ComponentActivity() {
         // Android 13+ shows its own confirmation.
     }
 
+    /**
+     * Opens the list of apps with notification access. The per-app detail screen is skipped
+     * on purpose: One UI sometimes resolves it to the app's own notification settings
+     * ("Zezwalaj na powiadomienia"), which is a different switch.
+     */
     private fun requestNotificationAccess() {
         val component = NotificationState.component(this).flattenToString()
         val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
             .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
-        val ok = runCatching { startActivity(detail) }.isSuccess ||
-            runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.isSuccess
+        val ok = runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.isSuccess ||
+            runCatching { startActivity(detail) }.isSuccess
         if (!ok) Toast.makeText(this, "Nie udało się otworzyć ustawień powiadomień", Toast.LENGTH_SHORT).show()
     }
 
