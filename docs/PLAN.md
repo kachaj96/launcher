@@ -1,0 +1,111 @@
+# Launcher Android - plan v1
+
+Stan na 17 listopada 2026. Źródło: dokument „Launcher Android - plan v1” i mockup v1.
+
+## Cel i zakres v1
+
+Własny launcher na Samsunga (Android 14-16) w stylu iwall.design: tapeta pół czerni i pół zdjęcia, karuzela widżetów u góry, 6 przypiętych aplikacji i szuflada z alfabetem. Na własny użytek, instalowany z APK, bez Play Store.
+
+W v1:
+
+- ekran główny z tapetą rysowaną przez launcher
+- karuzela: 4 strony (zegar, pogoda, dzień z kalendarzem, tarcza), cały tekst poziomo
+- szuflada: wyszukiwarka, alfabet, ostatnio używane, ukrywanie i zmiana nazw
+- gesty: w górę, w dół, przytrzymanie
+- ekran ustawień
+
+Poza v1: zegar słowny, dwuklik blokujący ekran, tryb czuwania jako osobny ekran, paczki ikon, widżety innych aplikacji, foldery, publikacja w Play Store.
+
+## Decyzje
+
+| Obszar | Decyzja |
+| --- | --- |
+| Tapeta | Launcher rysuje ją sam: wybrane zdjęcie przycięte do prawej części, z lewej czarny gradient |
+| Karuzela | 4 strony: zegar, pogoda, dzień z kalendarzem, tarcza. Domyślna: zegar |
+| Orientacja | Cały tekst i liczby poziomo |
+| Ikony | Monochromatyczne z systemu (warstwa monochrome, Android 13+), białe |
+| Gesty | W górę: szuflada · w dół: powiadomienia · przytrzymanie: ustawienia |
+| Urządzenie | Samsung, Android 14-16 (minSdk 33) |
+| Język | Polski: daty i powitania |
+| Czuwanie | Poza v1; tarcza jako strona karuzeli |
+| Szuflada | Wyszukiwarka, ukrywanie, zmiana nazw, ostatnio używane; alfabet przy prawej krawędzi; klawiatura dopiero po stuknięciu w pole |
+| Pogoda | Przybliżona lokalizacja z GPS, wpisane miasto jako zapas |
+| Akcent | Do wyboru w ustawieniach, domyślnie pomarańczowy |
+| Font | Outfit |
+| Przypięte | Do 6 aplikacji, tekst plus ikona, wyrównane do lewej |
+| Nazwa | Robocza: `com.adrian.launcher` |
+
+## Ekrany i zachowanie
+
+### Ekran główny
+
+Od góry: przezroczysty pasek statusu, karuzela (około 45% wysokości) z kropkami stron, pasek „wt, 17 lis · 80%”, 6 przypiętych aplikacji. Tło: wybrane zdjęcie wyrównane do prawej z czarnym gradientem od lewej krawędzi, szerokość gradientu ustawiana suwakiem.
+
+### Strony karuzeli
+
+1. **Zegar (domyślny):** duża godzina z mniejszymi minutami obok, pod nią „WT · 17 LISTOPADA” i pogoda jednym zdaniem.
+2. **Pogoda:** nazwa miesiąca, temperatura, opis, wilgotność, wiatr, bateria.
+3. **Dzień:** duże „17.”, powitanie zależne od pory dnia („Dzień dobry, Adrian”), najbliższe wydarzenie z kalendarza w ciągu 24 h.
+4. **Tarcza:** godzina, kapsuła z minutami w akcencie, pierścień kolejnych minut; liczby poziome.
+
+Każdą stronę można włączyć albo wyłączyć i zmienić jej kolejność. Po odblokowaniu telefonu karuzela wraca do zegara.
+
+### Szuflada
+
+Przesunięcie w górę, przyciemniona warstwa nad tapetą. U góry pole wyszukiwania, pod nim 4 ostatnio używane, niżej alfabetyczna lista z ikoną i nazwą. Pasek alfabetu przy prawej krawędzi: przesuwasz kciukiem, litera się powiększa, lista skacze. Sortowanie po polsku (Ł, Ś, Ż na swoich miejscach). Klawiatura nie otwiera się sama.
+
+- Jedno trafienie w wyszukiwarce otwiera aplikację automatycznie.
+- Przytrzymanie aplikacji: przypnij lub odepnij, zmień nazwę, ukryj, informacje, odinstaluj.
+- Ukryte aplikacje nie są na liście, ale wyszukiwarka je znajduje.
+
+### Ustawienia (przytrzymanie na ekranie głównym)
+
+- Tapeta: wybór zdjęcia, szerokość gradientu, podgląd
+- Karuzela: włączanie stron i kolejność
+- Akcent: kilka kolorów, domyślnie pomarańczowy
+- Przypięte: kolejność przeciąganiem
+- Ukryte aplikacje i zmienione nazwy: lista z cofnięciem
+- Pogoda: GPS, zapasowo wpisane miasto
+- Status uprawnień i przycisk „Ustaw jako domyślny ekran główny”
+
+## Architektura
+
+| Warstwa | Wybór | Uwagi |
+| --- | --- | --- |
+| Język i UI | Kotlin, Jetpack Compose | Jedna `MainActivity` z filtrem `HOME` + `DEFAULT`, `singleTask` |
+| Lista aplikacji | `LauncherApps` | `getActivityList()`, callback na instalację i odinstalowanie |
+| Ikony | `AdaptiveIconDrawable.monochrome` | Gdy brak warstwy: pierwsza litera w cienkim kółku |
+| Ustawienia i stan | DataStore | Przypięte, ukryte, nazwy, licznik uruchomień, strony karuzeli, akcent |
+| Pogoda | Open-Meteo, kotlinx.serialization | Bez klucza API, cache 30 min, odświeżanie przy powrocie na ekran |
+| Lokalizacja | `ACCESS_COARSE_LOCATION` | Ostatnia znana pozycja; brak = wpisane miasto |
+| Kalendarz | `CalendarContract.Instances` | Najbliższe wydarzenie w ciągu 24 h |
+| Zegar | `ACTION_TIME_TICK` | Tylko gdy ekran główny jest widoczny |
+| Tapeta | Własny `Image` + gradient | Kopia zdjęcia w plikach aplikacji |
+| Panel powiadomień | `StatusBarManager` przez refleksję | `expandNotificationsPanel()`, uprawnienie `EXPAND_STATUS_BAR` |
+| Build | GitHub Actions | Debug APK jako artefakt przy każdym pushu |
+
+Pakiety: `data/`, `home/`, `carousel/` (plik na stronę), `drawer/`, `settings/`, `system/` (gesty, refleksja).
+
+## Ryzyka na Samsungu
+
+| Element | Ryzyko | Co robimy |
+| --- | --- | --- |
+| `EXPAND_STATUS_BAR` + refleksja | Aktualizacja One UI może zepsuć gest w dół | Gdy wywołanie się nie uda, gest się wyłącza, ustawienia pokazują informację |
+| Lokalizacja | Brak zgody lub sygnału | Wpisane miasto |
+| Kalendarz | Brak zgody | Strona pokazuje tylko datę i powitanie |
+| Sieć | Brak | Ostatnia zapisana pogoda z godziną pobrania |
+| Ikony mono | Część aplikacji nie ma warstwy monochrome | Litera w kółku; w etapie 2 sprawdzamy skalę na telefonie |
+| Gesty One UI | Animacje powrotu do ekranu głównego bywają mniej płynne | Test już w etapie 0 |
+
+## Etapy
+
+| Etap | Zakres | Odbiór na telefonie |
+| --- | --- | --- |
+| 0. Szkielet | Repo, Gradle, Compose, filtr `HOME`, workflow Actions | APK się instaluje, da się ustawić jako domyślny, gesty One UI działają |
+| 1. Szuflada | `LauncherApps`, polskie sortowanie, alfabet po prawej, wyszukiwarka, uruchamianie | Wszystkie aplikacje na liście, skok po literze, jedno trafienie uruchamia aplikację |
+| 2. Ekran główny | Tapeta z gradientem, 6 przypiętych, pasek daty i baterii, ikony mono z zamiennikiem | Wygląd zgodny z mockupem, wiadomo, ile aplikacji dostaje literę |
+| 3. Karuzela | 4 strony bez sieci, kropki, powrót do zegara po odblokowaniu | Zegar zmienia się co minutę, płynne przewijanie |
+| 4. Dane | Pogoda (GPS z zapasowym miastem, cache), kalendarz, uprawnienia, stany błędu | Odmowa uprawnienia nie psuje strony |
+| 5. Gesty | W górę, w dół z zabezpieczeniem, przytrzymanie | Wszystkie 3 działają, nieudany gest w dół nie powoduje błędu |
+| 6. Personalizacja | Menu aplikacji, ukrywanie, nazwy, ostatnio używane, akcent, ustawienia | Zmiany przetrwają restart telefonu |
+| 7. Szlif | Animacje, podpisany APK release, kopia zapasowa ustawień | Tydzień codziennego używania bez powrotu do One UI Home |
