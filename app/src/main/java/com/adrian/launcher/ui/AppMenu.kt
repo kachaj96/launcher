@@ -1,5 +1,6 @@
 package com.adrian.launcher.ui
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -50,10 +53,14 @@ fun AppMenu(
     accent: Color,
     actions: AppMenuActions,
 ) {
+    // Pops in like an iOS context menu.
+    val appear = remember(app.key) { Animatable(0f) }
+    LaunchedEffect(app.key) { appear.animateTo(1f, Springs.snappy()) }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer { alpha = appear.value.coerceIn(0f, 1f) }
             .background(Color.Black.copy(alpha = 0.55f))
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -64,6 +71,11 @@ fun AppMenu(
         Column(
             modifier = Modifier
                 .padding(horizontal = 40.dp)
+                .graphicsLayer {
+                    val s = 0.9f + 0.1f * appear.value
+                    scaleX = s
+                    scaleY = s
+                }
                 .fillMaxWidth()
                 .background(Panel, RoundedCornerShape(18.dp))
                 .border(1.dp, Line, RoundedCornerShape(18.dp))

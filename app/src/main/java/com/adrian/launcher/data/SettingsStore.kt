@@ -47,6 +47,8 @@ data class LauncherSettings(
     val weatherCache: String = "",
     val swipeDownBroken: Boolean = false,
     val calendarWidgetId: Int = NO_WIDGET,
+    /** One-time cleanup of duplicate default pins from older versions has run. */
+    val pinsDeduped: Boolean = false,
 ) {
     val enabledPages: List<PageId>
         get() = pages.filter { it.enabled }.map { it.id }.ifEmpty { listOf(PageId.CLOCK) }
@@ -114,6 +116,7 @@ class SettingsStore(private val context: Context) {
             weatherCache = o.optString("weatherCache", d.weatherCache),
             swipeDownBroken = o.optBoolean("swipeDownBroken", d.swipeDownBroken),
             calendarWidgetId = o.optInt("calendarWidgetId", d.calendarWidgetId),
+            pinsDeduped = o.optBoolean("pinsDeduped", d.pinsDeduped),
         )
     }
 
@@ -133,6 +136,7 @@ class SettingsStore(private val context: Context) {
         put("weatherCache", s.weatherCache)
         put("swipeDownBroken", s.swipeDownBroken)
         put("calendarWidgetId", s.calendarWidgetId)
+        put("pinsDeduped", s.pinsDeduped)
     }
 }
 

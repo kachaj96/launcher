@@ -83,8 +83,8 @@ class AppRepository(private val context: Context) {
         bitmap.asImageBitmap()
     }.getOrNull()
 
-    fun launch(app: AppEntry, sourceBounds: Rect? = null) {
-        launcherApps.startMainActivity(app.component, app.user, sourceBounds, null)
+    fun launch(app: AppEntry, sourceBounds: Rect? = null, options: android.os.Bundle? = null) {
+        launcherApps.startMainActivity(app.component, app.user, sourceBounds, options)
     }
 
     fun openAppInfo(app: AppEntry) {

@@ -1,5 +1,17 @@
 package com.adrian.launcher.drawer
 
+import android.graphics.Rect
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.Velocity
+import com.adrian.launcher.ui.bouncyClick
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -92,7 +104,13 @@ fun AppDrawer(
     searchPool: List<AppEntry>,
     recent: List<AppEntry>,
     accent: Color,
-    onLaunch: (AppEntry) -> Unit,
+    /** 0 = closed, 1 = fully open; follows the finger while dragging. */
+    progress: () -> Float,
+    /** Vertical drag on the drawer in px (positive = finger moving down, closing it). */
+    onDrag: (Float) -> Unit,
+    /** Drag released with this vertical velocity (px/s); the caller springs open or shut. */
+    onDragEnd: (Float) -> Unit,
+    onLaunch: (AppEntry, Rect?) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onClose: () -> Unit,
 ) {
@@ -120,16 +138,55 @@ fun AppDrawer(
 
     LaunchedEffect(results, folded) {
         if (folded.length >= AUTO_LAUNCH_MIN_CHARS && results.size == 1) {
-            onLaunch(results.first())
+            onLaunch(results.first(), null)
         }
     }
 
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val keyboard = LocalSoftwareKeyboardController.current
+    val currentProgress by rememberUpdatedState(progress)
+    val currentOnDrag by rememberUpdatedState(onDrag)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
+
+    // Pulling down at the top of the list closes the drawer under the finger, like iOS sheets.
+    val dismissConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.Drag && available.y < 0 && currentProgress() < 1f) {
+                    currentOnDrag(available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.Drag && available.y > 0) {
+                    keyboard?.hide()
+                    currentOnDrag(available.y)
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (currentProgress() < 1f) {
+                    currentOnDragEnd(available.y)
+                    return available
+                }
+                return Velocity.Zero
+            }
+        }
+    }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .graphicsLayer {
+                val p = currentProgress()
+                translationY = (1f - p) * size.height * 0.35f
+                alpha = p
+            }
             .background(Color.Black.copy(alpha = 0.94f))
             .blockTouchesBelow()
             .systemBarsPadding()
@@ -139,13 +196,23 @@ fun AppDrawer(
             query = query,
             onQueryChange = { query = it },
             onClose = onClose,
-            onSubmit = { results.firstOrNull()?.let(onLaunch) },
+            onSubmit = { results.firstOrNull()?.let { onLaunch(it, null) } },
+            modifier = Modifier.draggable(
+                state = rememberDraggableState { delta ->
+                    keyboard?.hide()
+                    currentOnDrag(delta)
+                },
+                orientation = Orientation.Vertical,
+                onDragStopped = { velocity -> currentOnDragEnd(velocity) },
+            ),
         )
 
         Box(modifier = Modifier.fillMaxSize()) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .nestedScroll(dismissConnection),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
                     start = 28.dp, end = 64.dp, bottom = 32.dp,
                 ),
@@ -168,7 +235,7 @@ fun AppDrawer(
                         is DrawerRow.Header -> SectionHeader(row.letter)
                         is DrawerRow.App -> AppRow(
                             app = row.app,
-                            onClick = { onLaunch(row.app) },
+                            onClick = { bounds -> onLaunch(row.app, bounds) },
                             onLongClick = { onLongPress(row.app) },
                         )
                     }
@@ -198,16 +265,17 @@ private fun SearchBar(
     onQueryChange: (String) -> Unit,
     onClose: () -> Unit,
     onSubmit: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.padding(start = 12.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+        modifier = modifier.padding(start = 12.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
     ) {
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(48.dp)
-                .clickable(onClick = onClose),
+                .bouncyClick(pressedScale = 0.85f) { onClose() },
         ) {
             Chevron(pointsUp = false, color = Ink)
         }
@@ -253,11 +321,10 @@ private fun SectionHeader(letter: String) {
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppRow(
     app: AppEntry,
-    onClick: () -> Unit,
+    onClick: (Rect?) -> Unit,
     onLongClick: () -> Unit,
 ) {
     Row(
@@ -265,7 +332,7 @@ private fun AppRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .bouncyClick(pressedScale = 0.97f, onLongClick = onLongClick, onClick = onClick),
     ) {
         AppIcon(app)
         Spacer(Modifier.width(18.dp))
@@ -273,11 +340,10 @@ private fun AppRow(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun RecentRow(
     recent: List<AppEntry>,
-    onLaunch: (AppEntry) -> Unit,
+    onLaunch: (AppEntry, Rect?) -> Unit,
     onLongPress: (AppEntry) -> Unit,
 ) {
     Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
@@ -288,7 +354,7 @@ private fun RecentRow(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .weight(1f)
-                        .combinedClickable(onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
+                        .bouncyClick(pressedScale = 0.9f, onLongClick = { onLongPress(app) }) { b -> onLaunch(app, b) }
                         .padding(vertical = 8.dp),
                 ) {
                     AppIcon(app, size = 24.dp)

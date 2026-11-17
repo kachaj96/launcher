@@ -1,6 +1,7 @@
 package com.adrian.launcher
 
 import android.Manifest
+import android.app.ActivityOptions
 import android.app.role.RoleManager
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProviderInfo
@@ -13,6 +14,7 @@ import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.view.HapticFeedbackConstants
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -23,6 +25,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -31,6 +34,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +74,7 @@ import com.adrian.launcher.ui.AppMenu
 import com.adrian.launcher.ui.AppMenuActions
 import com.adrian.launcher.ui.LauncherTheme
 import com.adrian.launcher.ui.RenameDialog
+import com.adrian.launcher.ui.Springs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -80,8 +85,8 @@ private val DEFAULT_PINS = listOf(
     "com.android.chrome",
     "com.sec.android.app.camera",
     "com.android.vending",
-    "com.samsung.android.messaging",
     "com.google.android.apps.messaging",
+    "com.samsung.android.messaging",
     "com.sec.android.gallery3d",
     "com.google.android.apps.photos",
     "com.android.settings",
@@ -103,7 +108,11 @@ class MainActivity : ComponentActivity() {
     private var weatherJob: Job? = null
 
     private val rawApps = mutableStateOf<List<AppEntry>>(emptyList())
-    private val drawerOpen = mutableStateOf(false)
+    /** Drawer position: 0 closed, 1 open. Driven by the finger, then by a spring. */
+    private val drawer = Animatable(0f)
+    /** Home entrance after returning from an app: 0 = zoomed in and faded, 1 = at rest. */
+    private val homeEnter = Animatable(1f)
+    private var returningFromApp = false
     private val settingsOpen = mutableStateOf(false)
     private val menuApp = mutableStateOf<AppEntry?>(null)
     private val renameApp = mutableStateOf<AppEntry?>(null)
@@ -206,7 +215,8 @@ class MainActivity : ComponentActivity() {
         val menuTarget = menuApp.value
         val renameTarget = renameApp.value
 
-        BackHandler(enabled = drawerOpen.value) { drawerOpen.value = false }
+        val drawerVisible by remember { derivedStateOf { drawer.value > 0f } }
+        BackHandler(enabled = drawerVisible) { closeDrawer() }
         BackHandler(enabled = settingsOpen.value) { settingsOpen.value = false }
         BackHandler(enabled = menuTarget != null) { menuApp.value = null }
 
@@ -227,10 +237,14 @@ class MainActivity : ComponentActivity() {
                     createWidgetView = { id -> widgets.createView(this@MainActivity, id) },
                     isDefaultHome = isDefaultHome.value,
                     resetSignal = resetSignal.intValue,
+                    drawerProgress = { drawer.value },
+                    enterProgress = { homeEnter.value },
                     actions = HomeActions(
                         onLaunch = ::launchApp,
                         onAppLongPress = { menuApp.value = it },
-                        onOpenDrawer = { drawerOpen.value = true },
+                        onDrawerDrag = ::dragDrawer,
+                        onDrawerDragEnd = ::settleDrawer,
+                        onOpenDrawer = ::openDrawer,
                         onSwipeDown = { swipeDown(settings) },
                         onOpenSettings = { settingsOpen.value = true },
                         onRequestDefault = ::requestDefaultHome,
@@ -238,26 +252,26 @@ class MainActivity : ComponentActivity() {
                     ),
                 )
 
-                AnimatedVisibility(
-                    visible = drawerOpen.value,
-                    enter = slideInVertically { it / 6 } + fadeIn(),
-                    exit = slideOutVertically { it / 6 } + fadeOut(),
-                ) {
+                if (drawerVisible) {
                     AppDrawer(
                         apps = visible,
                         searchPool = renamed,
                         recent = recent,
                         accent = accent,
+                        progress = { drawer.value },
+                        // On the drawer, a downward drag (positive) closes it.
+                        onDrag = ::dragDrawer,
+                        onDragEnd = ::settleDrawer,
                         onLaunch = ::launchApp,
                         onLongPress = { menuApp.value = it },
-                        onClose = { drawerOpen.value = false },
+                        onClose = { closeDrawer() },
                     )
                 }
 
                 AnimatedVisibility(
                     visible = settingsOpen.value,
-                    enter = slideInVertically { it / 8 } + fadeIn(),
-                    exit = slideOutVertically { it / 8 } + fadeOut(),
+                    enter = slideInVertically(Springs.soft()) { it / 8 } + fadeIn(Springs.soft()),
+                    exit = slideOutVertically(Springs.soft()) { it / 8 } + fadeOut(Springs.soft()),
                 ) {
                     SettingsScreen(
                         settings = settings,
@@ -363,7 +377,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // Home pressed while already on the launcher: close whatever is open, else go back to the clock.
         if (intent.action == Intent.ACTION_MAIN && intent.hasCategory(Intent.CATEGORY_HOME)) {
-            val somethingOpen = drawerOpen.value || settingsOpen.value || menuApp.value != null || renameApp.value != null
+            val somethingOpen = drawer.value > 0f || settingsOpen.value || menuApp.value != null || renameApp.value != null
             closeOverlays()
             if (!somethingOpen) resetSignal.intValue++
         }
@@ -376,11 +390,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         widgets.stopListening()
+        // Whatever took over the screen, come back to a closed drawer with the iOS zoom-out.
+        returningFromApp = true
+        closeDrawer(animated = false)
+        lifecycleScope.launch { homeEnter.snapTo(0f) }
         super.onStop()
     }
 
     override fun onResume() {
         super.onResume()
+        if (returningFromApp) {
+            returningFromApp = false
+            lifecycleScope.launch { homeEnter.animateTo(1f, Springs.soft()) }
+        }
         refreshSystemState()
         refreshWeather(force = false)
     }
@@ -392,7 +414,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun closeOverlays() {
-        drawerOpen.value = false
+        closeDrawer()
         settingsOpen.value = false
         menuApp.value = null
         renameApp.value = null
@@ -486,24 +508,81 @@ class MainActivity : ComponentActivity() {
 
     /** First start only: pin common apps that are installed, so the home screen is not empty. */
     private suspend fun ensureDefaultPins(apps: List<AppEntry>) {
-        if (apps.isEmpty() || settingsStore.current().pinnedInitialized) return
+        if (apps.isEmpty()) return
         val byPackage = apps.groupBy { it.packageName }
-        val picks = DEFAULT_PINS.mapNotNull { byPackage[it]?.firstOrNull()?.key }.distinct().take(MAX_PINNED)
-        settingsStore.update { it.copy(pinned = picks, pinnedInitialized = true) }
+        val current = settingsStore.current()
+        if (!current.pinnedInitialized) {
+            // One messaging app only: Google Messages if installed, else Samsung's.
+            val messaging = listOf("com.google.android.apps.messaging", "com.samsung.android.messaging")
+                .firstOrNull { byPackage.containsKey(it) }
+            val picks = DEFAULT_PINS
+                .filter { it !in setOf("com.google.android.apps.messaging", "com.samsung.android.messaging") || it == messaging }
+                .mapNotNull { byPackage[it]?.firstOrNull()?.key }
+                .distinct()
+                .take(MAX_PINNED)
+            settingsStore.update { it.copy(pinned = picks, pinnedInitialized = true, pinsDeduped = true) }
+        } else if (!current.pinsDeduped) {
+            // Earlier versions pinned both messaging apps; keep Google Messages.
+            val samsung = byPackage["com.samsung.android.messaging"].orEmpty().map { it.key }.toSet()
+            val google = byPackage["com.google.android.apps.messaging"].orEmpty().map { it.key }.toSet()
+            settingsStore.update { s ->
+                val both = s.pinned.any { it in samsung } && s.pinned.any { it in google }
+                s.copy(pinned = if (both) s.pinned.filter { it !in samsung } else s.pinned, pinsDeduped = true)
+            }
+        }
     }
 
-    private fun launchApp(app: AppEntry) {
-        val ok = runCatching { appsRepo.launch(app) }.isSuccess
-        if (!ok) Toast.makeText(this, "Nie udało się otworzyć: ${app.label}", Toast.LENGTH_SHORT).show()
-        drawerOpen.value = false
+    /**
+     * Opens the app growing out of the row that was tapped (iOS-style). The drawer stays
+     * put underneath and is reset when the launcher goes to the background, so nothing
+     * flickers during the transition.
+     */
+    private fun launchApp(app: AppEntry, bounds: android.graphics.Rect?) {
+        val options = bounds?.let {
+            ActivityOptions.makeScaleUpAnimation(window.decorView, it.left, it.top, it.width(), it.height()).toBundle()
+        }
+        val ok = runCatching { appsRepo.launch(app, bounds, options) }.isSuccess
         menuApp.value = null
-        if (ok) {
-            val now = System.currentTimeMillis()
-            updateSettings { s ->
-                val history = (s.lastLaunch + (app.key to now)).entries
-                    .sortedByDescending { it.value }.take(20).associate { it.key to it.value }
-                s.copy(lastLaunch = history)
-            }
+        if (!ok) {
+            Toast.makeText(this, "Nie udało się otworzyć: ${app.label}", Toast.LENGTH_SHORT).show()
+            return
+        }
+        returningFromApp = true
+        val now = System.currentTimeMillis()
+        updateSettings { s ->
+            val history = (s.lastLaunch + (app.key to now)).entries
+                .sortedByDescending { it.value }.take(20).associate { it.key to it.value }
+            s.copy(lastLaunch = history)
+        }
+    }
+
+    private fun drawerTravelPx(): Float = resources.displayMetrics.heightPixels * 0.55f
+
+    /** Finger moved by [dy] px; up (negative) opens, down closes. */
+    private fun dragDrawer(dy: Float) {
+        lifecycleScope.launch {
+            drawer.snapTo((drawer.value - dy / drawerTravelPx()).coerceIn(0f, 1f))
+        }
+    }
+
+    /** Finger lifted: a quick flick decides, otherwise the position does. */
+    private fun settleDrawer(velocityY: Float) {
+        val open = when {
+            velocityY < -900f -> true
+            velocityY > 900f -> false
+            else -> drawer.value > 0.4f
+        }
+        if (open) openDrawer() else closeDrawer()
+    }
+
+    private fun openDrawer() {
+        if (drawer.targetValue < 1f) window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        lifecycleScope.launch { drawer.animateTo(1f, Springs.soft()) }
+    }
+
+    private fun closeDrawer(animated: Boolean = true) {
+        lifecycleScope.launch {
+            if (animated) drawer.animateTo(0f, Springs.soft()) else drawer.snapTo(0f)
         }
     }
 

@@ -26,7 +26,19 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import com.adrian.launcher.ui.Springs
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,13 +66,23 @@ fun ClockWeatherPage(now: LocalDateTime, weather: WeatherNow?, hint: WeatherHint
                 lineHeight = 120.sp,
                 fontWeight = FontWeight.SemiBold,
             )
-            Text(
-                text = "%02d".format(now.minute),
-                color = Ink,
-                fontSize = 44.sp,
-                fontWeight = FontWeight.Medium,
+            // Minutes roll up like a flip counter when they change.
+            AnimatedContent(
+                targetState = now.minute,
+                transitionSpec = {
+                    (slideInVertically(Springs.soft()) { it / 2 } + fadeIn(Springs.soft())) togetherWith
+                        (slideOutVertically(Springs.soft()) { -it / 2 } + fadeOut(Springs.soft()))
+                },
+                label = "minutes",
                 modifier = Modifier.padding(start = 8.dp, top = 16.dp),
-            )
+            ) { minute ->
+                Text(
+                    text = "%02d".format(minute),
+                    color = Ink,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
         Text(
             text = "${PolishDate.dayShort(now).uppercase()} · ${now.dayOfMonth} ${PolishDate.monthGenitive(now).uppercase()}",
@@ -74,24 +96,36 @@ fun ClockWeatherPage(now: LocalDateTime, weather: WeatherNow?, hint: WeatherHint
         Spacer(Modifier.height(16.dp))
         if (weather != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                CloudGlyph()
+                WeatherGlyph(weather.code)
+                Spacer(Modifier.width(12.dp))
+                Text("${weather.temperature.roundToInt()}°", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Medium)
                 Spacer(Modifier.width(10.dp))
-                Text("${weather.temperature.roundToInt()}°", color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Medium)
-                Spacer(Modifier.width(8.dp))
                 Text(
-                    text = weather.description + if (weather.place.isNotBlank()) " · ${weather.place}" else "",
+                    text = weather.description,
                     color = Ink,
-                    fontSize = 15.sp,
+                    fontSize = 17.sp,
                     fontWeight = FontWeight.Light,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
+            val placeAndFeel = listOfNotNull(
+                weather.place.takeIf { it.isNotBlank() },
+                "odczuwalna ${weather.apparent.roundToInt()}°",
+            ).joinToString(" · ")
             Text(
-                text = "odczuwalna ${weather.apparent.roundToInt()}° · wilgotność ${weather.humidity}% · wiatr ${weather.windKmh.roundToInt()} km/h",
+                text = placeAndFeel,
                 color = Quiet,
-                fontSize = 13.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Light,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(top = 8.dp),
+            )
+            Text(
+                text = "wilgotność ${weather.humidity}% · wiatr ${weather.windKmh.roundToInt()} km/h",
+                color = Quiet,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Light,
+                modifier = Modifier.padding(top = 2.dp),
             )
         } else if (hint != null) {
             Text(hint.text, color = Quiet, fontSize = 14.sp, fontWeight = FontWeight.Light)
@@ -193,14 +227,33 @@ fun CalendarWidgetPage(widgetId: Int, createView: (Int) -> View?, fallback: @Com
     }
 }
 
+private const val CLOUD_HIGH = "M7 15h10a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.2 5.6A4.75 4.75 0 0 0 7 15z"
+
+/** Stroke glyphs on a 24-unit grid, picked by WMO weather code. */
+private fun weatherGlyphPath(code: Int): String = when (code) {
+    0, 1 -> "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2" +
+        "M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"
+    2 -> "M8 5.5a2.5 2.5 0 1 0 0 5a2.5 2.5 0 1 0 0-5M8 1.5v1.5M2 8h1.5M3.8 3.8l1 1M12.2 3.8l-1 1" +
+        "M9 21h8.5a3.75 3.75 0 0 0 .5-7.47A5 5 0 0 0 8.4 13.1A3.95 3.95 0 0 0 9 21z"
+    3 -> "M7 19h10a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.2 9.6A4.75 4.75 0 0 0 7 19z"
+    45, 48 -> "M4 8h16M6 12h12M4 16h16M7 20h10"
+    71, 73, 75, 77, 85, 86 -> CLOUD_HIGH + "M8 19v.01M12 21v.01M16 19v.01"
+    95, 96, 99 -> CLOUD_HIGH + "M12.5 16l-2.5 3.5h3l-2 3.5"
+    else -> CLOUD_HIGH + "M8.5 18l-1 3M12.5 18l-1 3M16.5 18l-1 3"
+}
+
 @Composable
-private fun CloudGlyph() {
-    Canvas(modifier = Modifier.size(22.dp)) {
+private fun WeatherGlyph(code: Int) {
+    val path = remember(code) { PathParser().parsePathString(weatherGlyphPath(code)).toPath() }
+    Canvas(modifier = Modifier.size(26.dp)) {
         val s = size.width / 24f
-        val stroke = Stroke(width = 1.5.dp.toPx())
-        drawCircle(Ink, radius = 4.5f * s, center = Offset(9f * s, 13f * s), style = stroke)
-        drawCircle(Ink, radius = 5.5f * s, center = Offset(14.5f * s, 11f * s), style = stroke)
-        drawLine(Ink, Offset(6f * s, 18f * s), Offset(19f * s, 18f * s), strokeWidth = 1.5.dp.toPx())
+        scale(s, s, pivot = Offset.Zero) {
+            drawPath(
+                path,
+                color = Ink,
+                style = Stroke(width = 1.5.dp.toPx() / s, cap = StrokeCap.Round, join = StrokeJoin.Round),
+            )
+        }
     }
 }
 
