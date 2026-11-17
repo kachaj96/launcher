@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.LauncherActivityInfo
 import android.content.pm.LauncherApps
+import android.content.pm.ShortcutInfo
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -86,6 +87,33 @@ class AppRepository(private val context: Context) {
     fun launch(app: AppEntry, sourceBounds: Rect? = null, options: android.os.Bundle? = null) {
         launcherApps.startMainActivity(app.component, app.user, sourceBounds, options)
     }
+
+    /**
+     * Static and dynamic shortcuts (e.g. "New incognito tab"). Only the default launcher may
+     * read them; anything else gets an empty list.
+     */
+    fun shortcuts(app: AppEntry): List<ShortcutInfo> = runCatching {
+        if (!launcherApps.hasShortcutHostPermission()) return emptyList()
+        val query = LauncherApps.ShortcutQuery()
+            .setPackage(app.packageName)
+            .setActivity(app.component)
+            .setQueryFlags(
+                LauncherApps.ShortcutQuery.FLAG_MATCH_DYNAMIC or
+                    LauncherApps.ShortcutQuery.FLAG_MATCH_MANIFEST or
+                    LauncherApps.ShortcutQuery.FLAG_MATCH_PINNED,
+            )
+        launcherApps.getShortcuts(query, app.user).orEmpty()
+            .filter { it.isEnabled }
+            .sortedWith(compareBy<ShortcutInfo>({ !it.isDeclaredInManifest }, { it.rank }))
+            .distinctBy { it.id }
+            .take(4)
+    }.getOrDefault(emptyList())
+
+    fun startShortcut(shortcut: ShortcutInfo) {
+        launcherApps.startShortcut(shortcut, null, null)
+    }
+
+    fun canReadShortcuts(): Boolean = runCatching { launcherApps.hasShortcutHostPermission() }.getOrDefault(false)
 
     fun openAppInfo(app: AppEntry) {
         launcherApps.startAppDetailsActivity(app.component, app.user, null, null)

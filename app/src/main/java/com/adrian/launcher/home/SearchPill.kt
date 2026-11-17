@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import com.adrian.launcher.ui.Faint
 import com.adrian.launcher.ui.Ink
 import com.adrian.launcher.ui.Outfit
+import com.adrian.launcher.ui.Panel
 import com.adrian.launcher.ui.Quiet
 import com.adrian.launcher.ui.Springs
 import com.adrian.launcher.ui.bouncyClick
@@ -62,9 +63,11 @@ fun SearchPill(
     focused: Boolean,
     onFocusChange: (Boolean) -> Unit,
     accent: Color,
+    placeholder: String,
     onSearch: () -> Unit,
     onCamera: () -> Unit,
     onLens: () -> Unit,
+    onGallery: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
@@ -73,7 +76,8 @@ fun SearchPill(
         modifier = modifier
             .fillMaxWidth()
             .height(SEARCH_PILL_HEIGHT_DP.dp)
-            .background(Color.White.copy(alpha = if (focused) 0.14f else 0.10f), RoundedCornerShape(26.dp))
+            // Solid while typing, so the blurred screen never shows through the text.
+            .background(if (focused) Panel else Color.White.copy(alpha = 0.10f), RoundedCornerShape(26.dp))
             .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
             .padding(start = 18.dp, end = 6.dp),
     ) {
@@ -81,7 +85,7 @@ fun SearchPill(
         Spacer(Modifier.width(10.dp))
         Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.weight(1f)) {
             if (query.isEmpty()) {
-                Text("Szukaj w Brave", color = Faint, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                Text(placeholder, color = Faint, fontSize = 16.sp, fontWeight = FontWeight.Light, maxLines = 1)
             }
             BasicTextField(
                 value = query,
@@ -97,13 +101,29 @@ fun SearchPill(
                     .onFocusChanged { onFocusChange(it.isFocused) },
             )
         }
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(44.dp)
-                .bouncyClick(pressedScale = 0.85f, onLongClick = onLens) { onCamera() },
+        AnimatedVisibility(
+            visible = query.isBlank(),
+            enter = fadeIn(Springs.snappy()),
+            exit = fadeOut(Springs.snappy()),
         ) {
-            Glyph(CAMERA_PATH, Ink, 22)
+            Row {
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(width = 40.dp, height = 44.dp)
+                        .bouncyClick(pressedScale = 0.85f, onLongClick = onLens) { onCamera() },
+                ) {
+                    Glyph(CAMERA_PATH, Ink, 22)
+                }
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(width = 40.dp, height = 44.dp)
+                        .bouncyClick(pressedScale = 0.85f) { onGallery() },
+                ) {
+                    Glyph(GALLERY_PATH, Ink, 22)
+                }
+            }
         }
         AnimatedVisibility(
             visible = query.isNotBlank(),
@@ -126,6 +146,7 @@ fun SearchPill(
 
 private const val SEARCH_PATH = "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13M15.5 15.5L20 20"
 private const val CAMERA_PATH = "M4 8h4l2-3h4l2 3h4v11H4zM12 10a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7"
+private const val GALLERY_PATH = "M4 5h16v14H4zM4 16l5-5l4 4l3-3l4 4M15.5 8.5a1 1 0 1 0 0 2a1 1 0 1 0 0-2"
 private const val ARROW_PATH = "M5 12h14M13 6l6 6l-6 6"
 
 @Composable

@@ -74,6 +74,9 @@ import com.adrian.launcher.ui.blockTouchesBelow
 import com.adrian.launcher.ui.Faint
 import com.adrian.launcher.ui.Ink
 import com.adrian.launcher.ui.Outfit
+import com.adrian.launcher.ui.Panel
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.onFocusChanged
 import com.adrian.launcher.ui.Quiet
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -113,6 +116,9 @@ fun AppDrawer(
     onLaunch: (AppEntry, Rect?) -> Unit,
     onLongPress: (AppEntry) -> Unit,
     onClose: () -> Unit,
+    /** Packages with unread notifications; empty when dots are off. */
+    notified: Set<String> = emptySet(),
+    autoLaunch: Boolean = true,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val folded = query.trim().foldForSearch()
@@ -137,7 +143,7 @@ fun AppDrawer(
     }
 
     LaunchedEffect(results, folded) {
-        if (folded.length >= AUTO_LAUNCH_MIN_CHARS && results.size == 1) {
+        if (autoLaunch && folded.length >= AUTO_LAUNCH_MIN_CHARS && results.size == 1) {
             onLaunch(results.first(), null)
         }
     }
@@ -192,29 +198,14 @@ fun AppDrawer(
             .systemBarsPadding()
             .imePadding(),
     ) {
-        SearchBar(
-            query = query,
-            onQueryChange = { query = it },
-            onClose = onClose,
-            onSubmit = { results.firstOrNull()?.let { onLaunch(it, null) } },
-            modifier = Modifier.draggable(
-                state = rememberDraggableState { delta ->
-                    keyboard?.hide()
-                    currentOnDrag(delta)
-                },
-                orientation = Orientation.Vertical,
-                onDragStopped = { velocity -> currentOnDragEnd(velocity) },
-            ),
-        )
-
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(dismissConnection),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                    start = 28.dp, end = 64.dp, bottom = 32.dp,
+                    start = 28.dp, end = 64.dp, top = 8.dp, bottom = 16.dp,
                 ),
             ) {
                 if (folded.isEmpty() && recent.isNotEmpty()) {
@@ -237,6 +228,8 @@ fun AppDrawer(
                             app = row.app,
                             onClick = { bounds -> onLaunch(row.app, bounds) },
                             onLongClick = { onLongPress(row.app) },
+                            hasNotification = row.app.packageName in notified,
+                            accent = accent,
                         )
                     }
                 }
@@ -256,6 +249,21 @@ fun AppDrawer(
                 )
             }
         }
+        SearchBar(
+            query = query,
+            onQueryChange = { query = it },
+            onClose = onClose,
+            onSubmit = { results.firstOrNull()?.let { onLaunch(it, null) } },
+            modifier = Modifier.draggable(
+                state = rememberDraggableState { delta ->
+                    keyboard?.hide()
+                    currentOnDrag(delta)
+                },
+                orientation = Orientation.Vertical,
+                onDragStopped = { velocity -> currentOnDragEnd(velocity) },
+            ),
+        )
+
     }
 }
 
@@ -267,45 +275,51 @@ private fun SearchBar(
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.padding(start = 12.dp, end = 20.dp, top = 8.dp, bottom = 8.dp),
+    var focused by remember { mutableStateOf(false) }
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
     ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+                .background(if (focused) Panel else Color.White.copy(alpha = 0.10f), RoundedCornerShape(26.dp))
+                .border(1.dp, Color.White.copy(alpha = 0.14f), RoundedCornerShape(26.dp))
+                .padding(horizontal = 18.dp),
+        ) {
+            androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+                val st = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.7.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                drawCircle(Quiet, radius = size.width * 0.3f, center = Offset(size.width * 0.44f, size.height * 0.44f), style = st)
+                drawLine(Quiet, Offset(size.width * 0.66f, size.height * 0.66f), Offset(size.width * 0.86f, size.height * 0.86f), 1.7.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            }
+            Spacer(Modifier.width(10.dp))
+            Box(contentAlignment = Alignment.CenterStart, modifier = Modifier.weight(1f)) {
+                if (query.isEmpty()) {
+                    Text("Szukaj aplikacji", color = Faint, fontSize = 16.sp, fontWeight = FontWeight.Light)
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = TextStyle(color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Light, fontFamily = Outfit),
+                    cursorBrush = SolidColor(Ink),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = { onSubmit() }),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .onFocusChanged { focused = it.isFocused },
+                )
+            }
+        }
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .size(48.dp)
+                .size(width = 64.dp, height = 44.dp)
                 .bouncyClick(pressedScale = 0.85f) { onClose() },
         ) {
-            Chevron(pointsUp = false, color = Ink)
-        }
-        Box(
-            contentAlignment = Alignment.CenterStart,
-            modifier = Modifier
-                .weight(1f)
-                .height(48.dp)
-                .drawBehind {
-                    drawLine(
-                        color = Color(0xFF3A3A3A),
-                        start = Offset(0f, size.height - 1f),
-                        end = Offset(size.width, size.height - 1f),
-                        strokeWidth = 1.dp.toPx(),
-                    )
-                },
-        ) {
-            if (query.isEmpty()) {
-                Text("Szukaj", color = Faint, fontSize = 17.sp, fontWeight = FontWeight.Light)
-            }
-            BasicTextField(
-                value = query,
-                onValueChange = onQueryChange,
-                singleLine = true,
-                textStyle = TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Light, fontFamily = Outfit),
-                cursorBrush = SolidColor(Ink),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                keyboardActions = KeyboardActions(onGo = { onSubmit() }),
-                modifier = Modifier.fillMaxWidth(),
-            )
+            Chevron(pointsUp = false, color = Color(0xFF9A9A9A))
         }
     }
 }
@@ -326,6 +340,8 @@ private fun AppRow(
     app: AppEntry,
     onClick: (Rect?) -> Unit,
     onLongClick: () -> Unit,
+    hasNotification: Boolean,
+    accent: Color,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -337,6 +353,10 @@ private fun AppRow(
         AppIcon(app)
         Spacer(Modifier.width(18.dp))
         Text(app.label, color = Ink, fontSize = 16.sp, maxLines = 1)
+        if (hasNotification) {
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.size(6.dp).background(accent, CircleShape))
+        }
     }
 }
 

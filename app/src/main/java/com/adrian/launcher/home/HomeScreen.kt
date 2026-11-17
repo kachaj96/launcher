@@ -3,14 +3,16 @@ package com.adrian.launcher.home
 import android.graphics.Rect
 import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -18,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -26,35 +29,47 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adrian.launcher.data.AppEntry
@@ -62,16 +77,19 @@ import com.adrian.launcher.data.CalendarEvent
 import com.adrian.launcher.data.NO_WIDGET
 import com.adrian.launcher.data.PageId
 import com.adrian.launcher.data.WeatherNow
+import com.adrian.launcher.data.foldForSearch
+import com.adrian.launcher.system.NowPlaying
 import com.adrian.launcher.ui.AppIcon
 import com.adrian.launcher.ui.Chevron
 import com.adrian.launcher.ui.Ink
-import com.adrian.launcher.ui.PolishDate
+import com.adrian.launcher.ui.Line
+import com.adrian.launcher.ui.Panel
 import com.adrian.launcher.ui.Quiet
 import com.adrian.launcher.ui.Springs
 import com.adrian.launcher.ui.bouncyClick
-import com.adrian.launcher.ui.rememberBatteryLevel
 import com.adrian.launcher.ui.rememberNow
 import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 
 /** Downward drag (px) that pulls the notification shade. */
@@ -94,6 +112,19 @@ class HomeActions(
     val onWebSearch: (String) -> Unit,
     val onCamera: () -> Unit,
     val onLens: () -> Unit,
+    val onGallery: () -> Unit,
+    val onOpenAlarms: () -> Unit,
+)
+
+/** What the search pill offers while typing. */
+class SpotlightConfig(
+    /** All apps that search may show (hidden ones included), already renamed. */
+    val apps: List<AppEntry>,
+    val showApps: Boolean,
+    val calculator: Boolean,
+    /** "Szukaj w Google" etc. */
+    val placeholder: String,
+    val onCopy: (String) -> Unit,
 )
 
 private enum class DragAxis { NONE, HORIZONTAL, UP, DOWN }
@@ -118,17 +149,28 @@ fun HomeScreen(
     drawerProgress: () -> Float,
     /** 0..1 entrance when coming back from an app (iOS-style zoom out). Read per frame. */
     enterProgress: () -> Float,
+    nowPlaying: NowPlaying?,
+    /** Packages with unread notifications; empty when dots are off. */
+    notified: Set<String>,
+    tapActions: Boolean,
+    focusActive: Boolean,
+    evening: Boolean,
+    spotlight: SpotlightConfig,
     actions: HomeActions,
 ) {
     val now by rememberNow()
-    val battery by rememberBatteryLevel()
     val haptics = LocalHapticFeedback.current
     val focusManager = LocalFocusManager.current
     var query by rememberSaveable { mutableStateOf("") }
     var searchFocused by remember { mutableStateOf(false) }
+    var showHourly by remember { mutableStateOf(false) }
     BackHandler(enabled = searchFocused) { focusManager.clearFocus() }
-    // Opening the drawer or going to an app ends the search.
-    LaunchedEffect(resetSignal) { focusManager.clearFocus() }
+    BackHandler(enabled = showHourly) { showHourly = false }
+    // Opening an app or locking the phone ends the search.
+    LaunchedEffect(resetSignal) {
+        focusManager.clearFocus()
+        showHourly = false
+    }
 
     val homePage = pages.indexOf(PageId.CLOCK).coerceAtLeast(0)
     val pagerState = rememberPagerState(initialPage = homePage) { pages.size }
@@ -144,6 +186,9 @@ fun HomeScreen(
         }
     }
 
+    val blur by animateDpAsState(if (searchFocused || showHourly) 18.dp else 0.dp, Springs.soft(), label = "blur")
+    val dim by animateFloatAsState(if (evening) 0.72f else 1f, Springs.soft(), label = "evening")
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -156,8 +201,6 @@ fun HomeScreen(
                 })
             },
     ) {
-        WallpaperLayer(wallpaper, gradient)
-
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -167,12 +210,15 @@ fun HomeScreen(
                     val scale = (1f - 0.06f * d) * (0.94f + 0.06f * e)
                     scaleX = scale
                     scaleY = scale
-                    alpha = (1f - 0.7f * d) * (0.3f + 0.7f * e)
-                }
-                .systemBarsPadding(),
+                    alpha = (1f - 0.7f * d) * (0.3f + 0.7f * e) * dim
+                    val r = blur.toPx()
+                    renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Decal) else null
+                },
         ) {
-            val carouselHeight = maxHeight * 0.42f
-            Column(modifier = Modifier.fillMaxSize()) {
+            WallpaperLayer(wallpaper, gradient)
+
+            val carouselHeight = maxHeight * (if (nowPlaying != null) 0.40f else 0.46f)
+            Column(modifier = Modifier.fillMaxSize().systemBarsPadding()) {
                 // Paging is driven by homeGestures for the whole screen height.
                 HorizontalPager(
                     state = pagerState,
@@ -183,7 +229,13 @@ fun HomeScreen(
                 ) { index ->
                     Box(modifier = Modifier.fillMaxSize()) {
                         when (pages[index]) {
-                            PageId.CLOCK -> ClockWeatherPage(now, weather, weatherHint)
+                            PageId.CLOCK -> ClockWeatherPage(
+                                now = now,
+                                weather = weather,
+                                hint = weatherHint,
+                                onClockTap = if (tapActions) actions.onOpenAlarms else null,
+                                onWeatherTap = if (tapActions && weather != null) ({ showHourly = true }) else null,
+                            )
                             PageId.CALENDAR -> {
                                 val card = @Composable {
                                     CalendarCardPage(now, name, event, calendarGranted, accent, actions.onRequestCalendar)
@@ -194,22 +246,24 @@ fun HomeScreen(
                     }
                 }
 
-                if (pages.size > 1) {
-                    PageDots(count = pages.size, current = pagerState.currentPage, accent = accent)
-                } else {
-                    Spacer(Modifier.height(32.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(start = 28.dp).height(32.dp),
+                ) {
+                    if (pages.size > 1) PageDots(count = pages.size, current = pagerState.currentPage, accent = accent)
+                    if (focusActive) FocusBadge(accent)
                 }
 
-                Text(
-                    text = "${PolishDate.dayShort(now)}, ${now.dayOfMonth} ${PolishDate.monthShort(now)} · $battery%",
-                    color = Quiet,
-                    fontSize = 13.sp,
-                    letterSpacing = 0.4.sp,
-                    modifier = Modifier.padding(start = 28.dp, top = 8.dp, bottom = 8.dp),
-                )
+                AnimatedVisibility(
+                    visible = nowPlaying != null,
+                    enter = expandVertically(Springs.soft()) + fadeIn(Springs.soft()),
+                    exit = shrinkVertically(Springs.soft()) + fadeOut(Springs.soft()),
+                ) {
+                    nowPlaying?.let { NowPlayingBar(it, accent) }
+                }
 
-                Column(modifier = Modifier.padding(start = 28.dp)) {
-                    pinned.forEach { app -> PinnedRow(app, actions) }
+                Column(modifier = Modifier.padding(start = 28.dp, top = 4.dp)) {
+                    pinned.forEach { app -> PinnedRow(app, app.packageName in notified, accent, actions) }
                 }
 
                 Spacer(Modifier.weight(1f))
@@ -243,46 +297,295 @@ fun HomeScreen(
                     Chevron(pointsUp = true, color = Color(0xFF9A9A9A))
                 }
             }
+        }
 
-            // While typing: dim the screen; a tap outside the pill ends the search.
-            val scrim by animateFloatAsState(if (searchFocused) 0.6f else 0f, Springs.soft(), label = "scrim")
-            if (scrim > 0.01f) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = scrim))
-                        .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } },
+        // While typing: blurred, dimmed home; a tap outside the pill ends the search.
+        val scrim by animateFloatAsState(if (searchFocused) 0.45f else 0f, Springs.soft(), label = "scrim")
+        if (scrim > 0.01f) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = scrim))
+                    .pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } },
+            )
+        }
+
+        val pillBottom by animateDpAsState(if (searchFocused) 12.dp else 56.dp, Springs.soft(), label = "pill")
+        Column(
+            verticalArrangement = Arrangement.Bottom,
+            modifier = Modifier
+                .fillMaxSize()
+                .systemBarsPadding()
+                .imePadding()
+                .padding(start = 20.dp, end = 20.dp, bottom = pillBottom),
+        ) {
+            val trimmed = query.trim()
+            AnimatedVisibility(
+                visible = searchFocused && trimmed.isNotEmpty(),
+                enter = slideInVertically(Springs.soft()) { it / 4 } + fadeIn(Springs.soft()),
+                exit = slideOutVertically(Springs.soft()) { it / 4 } + fadeOut(Springs.soft()),
+            ) {
+                SpotlightResults(
+                    query = trimmed,
+                    config = spotlight,
+                    onLaunch = { app, bounds ->
+                        query = ""
+                        focusManager.clearFocus()
+                        actions.onLaunch(app, bounds)
+                    },
+                    onSearch = {
+                        actions.onWebSearch(trimmed)
+                        query = ""
+                        focusManager.clearFocus()
+                    },
                 )
             }
+            SearchPill(
+                query = query,
+                onQueryChange = { query = it },
+                focused = searchFocused,
+                onFocusChange = { searchFocused = it },
+                accent = accent,
+                placeholder = spotlight.placeholder,
+                onSearch = {
+                    if (trimmed.isNotEmpty()) {
+                        actions.onWebSearch(trimmed)
+                        query = ""
+                        focusManager.clearFocus()
+                    }
+                },
+                onCamera = {
+                    focusManager.clearFocus()
+                    actions.onCamera()
+                },
+                onLens = {
+                    focusManager.clearFocus()
+                    actions.onLens()
+                },
+                onGallery = {
+                    focusManager.clearFocus()
+                    actions.onGallery()
+                },
+            )
+        }
 
-            val pillBottom by animateDpAsState(if (searchFocused) 12.dp else 56.dp, Springs.soft(), label = "pill")
-            Box(modifier = Modifier.fillMaxSize().imePadding()) {
-                SearchPill(
-                    query = query,
-                    onQueryChange = { query = it },
-                    focused = searchFocused,
-                    onFocusChange = { searchFocused = it },
-                    accent = accent,
-                    onSearch = {
-                        val q = query.trim()
-                        if (q.isNotEmpty()) {
-                            actions.onWebSearch(q)
-                            query = ""
-                            focusManager.clearFocus()
-                        }
-                    },
-                    onCamera = {
-                        focusManager.clearFocus()
-                        actions.onCamera()
-                    },
-                    onLens = {
-                        focusManager.clearFocus()
-                        actions.onLens()
-                    },
+        HourlySheet(visible = showHourly, weather = weather, onDismiss = { showHourly = false })
+    }
+}
+
+@Composable
+private fun FocusBadge(accent: Color) {
+    Text(
+        text = "Skupienie",
+        color = accent,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Medium,
+        modifier = Modifier
+            .padding(start = 12.dp)
+            .border(1.dp, accent, RoundedCornerShape(10.dp))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
+    )
+}
+
+/** iOS Live Activity in miniature: what is playing, with play/pause and next. */
+@Composable
+private fun NowPlayingBar(item: NowPlaying, accent: Color) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .padding(start = 20.dp, end = 20.dp, top = 4.dp, bottom = 8.dp)
+            .fillMaxWidth()
+            .height(56.dp)
+            .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
+            .border(1.dp, Color.White.copy(alpha = 0.10f), RoundedCornerShape(18.dp))
+            .bouncyClick(pressedScale = 0.98f) { item.open() }
+            .padding(start = 16.dp, end = 4.dp),
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(item.title, color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (item.artist.isNotBlank()) {
+                Text(item.artist, color = Quiet, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(44.dp).bouncyClick(pressedScale = 0.85f) { item.togglePlay() },
+        ) {
+            if (item.playing) {
+                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Box(Modifier.size(width = 4.dp, height = 16.dp).background(accent, RoundedCornerShape(1.dp)))
+                    Box(Modifier.size(width = 4.dp, height = 16.dp).background(accent, RoundedCornerShape(1.dp)))
+                }
+            } else {
+                PlayGlyph(accent)
+            }
+        }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(44.dp).bouncyClick(pressedScale = 0.85f) { item.next() },
+        ) {
+            NextGlyph(Ink)
+        }
+    }
+}
+
+@Composable
+private fun PlayGlyph(color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(size.width * 0.2f, size.height * 0.1f)
+            lineTo(size.width * 0.9f, size.height * 0.5f)
+            lineTo(size.width * 0.2f, size.height * 0.9f)
+            close()
+        }
+        drawPath(p, color)
+    }
+}
+
+@Composable
+private fun NextGlyph(color: Color) {
+    androidx.compose.foundation.Canvas(Modifier.size(18.dp)) {
+        val p = androidx.compose.ui.graphics.Path().apply {
+            moveTo(size.width * 0.1f, size.height * 0.15f)
+            lineTo(size.width * 0.65f, size.height * 0.5f)
+            lineTo(size.width * 0.1f, size.height * 0.85f)
+            close()
+        }
+        drawPath(p, color)
+        drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(size.width * 0.72f, size.height * 0.15f),
+            size = androidx.compose.ui.geometry.Size(size.width * 0.14f, size.height * 0.7f))
+    }
+}
+
+/** Apps and a calculator result above the pill while typing, like Spotlight. */
+@Composable
+private fun SpotlightResults(
+    query: String,
+    config: SpotlightConfig,
+    onLaunch: (AppEntry, Rect?) -> Unit,
+    onSearch: () -> Unit,
+) {
+    val folded = remember(query) { query.foldForSearch() }
+    val apps = remember(folded, config.apps, config.showApps) {
+        if (!config.showApps) emptyList() else config.apps
+            .filter { it.searchKey.contains(folded) }
+            .sortedBy { if (it.label.foldForSearch().startsWith(folded)) 0 else 1 }
+            .take(5)
+    }
+    val result = remember(query, config.calculator) {
+        if (config.calculator) com.adrian.launcher.data.Calculator.evaluate(query) else null
+    }
+    Column(
+        modifier = Modifier
+            .padding(bottom = 8.dp)
+            .fillMaxWidth()
+            .background(Panel, RoundedCornerShape(22.dp))
+            .border(1.dp, Line, RoundedCornerShape(22.dp))
+            .padding(vertical = 6.dp),
+    ) {
+        if (result != null) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bouncyClick(pressedScale = 0.98f) { config.onCopy(result) }
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+            ) {
+                Text("= $result", color = Ink, fontSize = 22.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f))
+                Text("kopiuj", color = Quiet, fontSize = 12.sp)
+            }
+        }
+        apps.forEach { app ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .bouncyClick(pressedScale = 0.98f) { b -> onLaunch(app, b) }
+                    .padding(horizontal = 18.dp),
+            ) {
+                AppIcon(app)
+                Spacer(Modifier.width(16.dp))
+                Text(app.label, color = Ink, fontSize = 16.sp, maxLines = 1)
+            }
+        }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(48.dp)
+                .bouncyClick(pressedScale = 0.98f) { onSearch() }
+                .padding(horizontal = 18.dp),
+        ) {
+            Text("Szukaj „$query” w sieci", color = Quiet, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+/** Next 12 hours, opened by tapping the weather. */
+@Composable
+private fun HourlySheet(visible: Boolean, weather: WeatherNow?, onDismiss: () -> Unit) {
+    val scrim by animateFloatAsState(if (visible) 0.45f else 0f, Springs.soft(), label = "hourlyScrim")
+    if (scrim > 0.01f) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = scrim))
+                .pointerInput(Unit) { detectTapGestures { onDismiss() } },
+        )
+    }
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(Springs.soft()) { it } + fadeIn(Springs.soft()),
+            exit = slideOutVertically(Springs.soft()) { it } + fadeOut(Springs.soft()),
+        ) {
+            Column(
+                modifier = Modifier
+                    .navigationBarsPadding()
+                    .padding(12.dp)
+                    .fillMaxWidth()
+                    .background(Panel, RoundedCornerShape(28.dp))
+                    .border(1.dp, Line, RoundedCornerShape(28.dp))
+                    .pointerInput(Unit) { detectTapGestures { } }
+                    .padding(vertical = 20.dp),
+            ) {
+                Box(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 20.dp, end = 20.dp, bottom = pillBottom),
+                        .align(Alignment.CenterHorizontally)
+                        .size(width = 36.dp, height = 4.dp)
+                        .background(Line, CircleShape),
                 )
+                val place = weather?.place?.takeIf { it.isNotBlank() }
+                Text(
+                    text = "Najbliższe 12 godzin" + (place?.let { " · $it" } ?: ""),
+                    color = Ink,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 24.dp, top = 16.dp, bottom = 16.dp),
+                )
+                val hours = weather?.hourly.orEmpty()
+                if (hours.isEmpty()) {
+                    Text(
+                        "Prognoza pojawi się przy następnym odświeżeniu pogody.",
+                        color = Quiet, fontSize = 14.sp,
+                        modifier = Modifier.padding(horizontal = 24.dp),
+                    )
+                } else {
+                    LazyRow(contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 16.dp)) {
+                        items(hours) { h ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                                modifier = Modifier.width(58.dp),
+                            ) {
+                                Text(h.time, color = Quiet, fontSize = 13.sp)
+                                WeatherGlyph(h.code, 24)
+                                Text("${h.temperature.roundToInt()}°", color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -411,12 +714,7 @@ private fun WallpaperLayer(wallpaper: ImageBitmap?, gradient: Float) {
 
 @Composable
 private fun PageDots(count: Int, current: Int, accent: Color) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .padding(start = 28.dp)
-            .height(32.dp),
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         repeat(count) { i ->
             val active = i == current
             val width by animateDpAsState(if (active) 18.dp else 6.dp, Springs.snappy(), label = "dot")
@@ -433,16 +731,20 @@ private fun PageDots(count: Int, current: Int, accent: Color) {
 }
 
 @Composable
-private fun PinnedRow(app: AppEntry, actions: HomeActions) {
+private fun PinnedRow(app: AppEntry, hasNotification: Boolean, accent: Color, actions: HomeActions) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .width(240.dp)
+            .width(260.dp)
             .height(44.dp)
             .bouncyClick(onLongClick = { actions.onAppLongPress(app) }) { bounds -> actions.onLaunch(app, bounds) },
     ) {
         AppIcon(app)
         Spacer(Modifier.width(18.dp))
         Text(app.label, color = Ink, fontSize = 16.sp, fontWeight = FontWeight.Normal, maxLines = 1)
+        if (hasNotification) {
+            Spacer(Modifier.width(8.dp))
+            Box(Modifier.size(6.dp).background(accent, CircleShape))
+        }
     }
 }

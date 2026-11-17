@@ -49,9 +49,76 @@ data class LauncherSettings(
     val calendarWidgetId: Int = NO_WIDGET,
     /** One-time cleanup of duplicate default pins from older versions has run. */
     val pinsDeduped: Boolean = false,
+
+    // Search
+    val searchEngine: SearchEngine = SearchEngine.GOOGLE,
+    /** Open results in Brave (true) or the default browser. */
+    val searchInBrave: Boolean = true,
+    val searchShowsApps: Boolean = true,
+    val calculator: Boolean = true,
+
+    // Drawer
+    val drawerAutoLaunch: Boolean = true,
+    val showRecent: Boolean = true,
+
+    // Home
+    val nowPlaying: Boolean = true,
+    val notificationDots: Boolean = true,
+    val tapActions: Boolean = true,
+    val haptics: Boolean = true,
+    val swipeDownEnabled: Boolean = true,
+
+    // Focus: apps hidden from home and drawer during a schedule
+    val focusMode: FocusMode = FocusMode.OFF,
+    val focusApps: Set<String> = emptySet(),
+    /** ISO days, 1 = Monday. */
+    val focusDays: Set<Int> = setOf(1, 2, 3, 4, 5),
+    /** Minutes after midnight. */
+    val focusStart: Int = 9 * 60,
+    val focusEnd: Int = 17 * 60,
+
+    // Evening: dimmer screen and a warm accent
+    val eveningMode: Boolean = false,
+    val eveningStart: Int = 22 * 60,
+    val eveningEnd: Int = 6 * 60,
 ) {
     val enabledPages: List<PageId>
         get() = pages.filter { it.enabled }.map { it.id }.ifEmpty { listOf(PageId.CLOCK) }
+
+    fun focusActive(now: java.time.LocalDateTime): Boolean = when (focusMode) {
+        FocusMode.OFF -> false
+        FocusMode.ALWAYS -> true
+        FocusMode.SCHEDULE -> now.dayOfWeek.value in focusDays && inWindow(now, focusStart, focusEnd)
+    }
+
+    fun eveningActive(now: java.time.LocalDateTime): Boolean = eveningMode && inWindow(now, eveningStart, eveningEnd)
+}
+
+enum class SearchEngine(val title: String) {
+    GOOGLE("Google"),
+    BRAVE("Brave Search"),
+    DUCKDUCKGO("DuckDuckGo");
+
+    fun url(query: String): String {
+        val q = android.net.Uri.encode(query)
+        return when (this) {
+            GOOGLE -> "https://www.google.com/search?q=$q"
+            BRAVE -> "https://search.brave.com/search?q=$q"
+            DUCKDUCKGO -> "https://duckduckgo.com/?q=$q"
+        }
+    }
+}
+
+enum class FocusMode(val title: String) {
+    OFF("Wyłączony"),
+    SCHEDULE("Według harmonogramu"),
+    ALWAYS("Zawsze"),
+}
+
+/** True when the time of day falls in [start, end); a window may cross midnight (22:00-6:00). */
+private fun inWindow(now: java.time.LocalDateTime, start: Int, end: Int): Boolean {
+    val m = now.hour * 60 + now.minute
+    return if (start <= end) m in start until end else m >= start || m < end
 }
 
 /**
@@ -117,6 +184,25 @@ class SettingsStore(private val context: Context) {
             swipeDownBroken = o.optBoolean("swipeDownBroken", d.swipeDownBroken),
             calendarWidgetId = o.optInt("calendarWidgetId", d.calendarWidgetId),
             pinsDeduped = o.optBoolean("pinsDeduped", d.pinsDeduped),
+            searchEngine = enumOr(o.optString("searchEngine"), d.searchEngine),
+            searchInBrave = o.optBoolean("searchInBrave", d.searchInBrave),
+            searchShowsApps = o.optBoolean("searchShowsApps", d.searchShowsApps),
+            calculator = o.optBoolean("calculator", d.calculator),
+            drawerAutoLaunch = o.optBoolean("drawerAutoLaunch", d.drawerAutoLaunch),
+            showRecent = o.optBoolean("showRecent", d.showRecent),
+            nowPlaying = o.optBoolean("nowPlaying", d.nowPlaying),
+            notificationDots = o.optBoolean("notificationDots", d.notificationDots),
+            tapActions = o.optBoolean("tapActions", d.tapActions),
+            haptics = o.optBoolean("haptics", d.haptics),
+            swipeDownEnabled = o.optBoolean("swipeDownEnabled", d.swipeDownEnabled),
+            focusMode = enumOr(o.optString("focusMode"), d.focusMode),
+            focusApps = o.optJSONArray("focusApps").strings().toSet(),
+            focusDays = o.optJSONArray("focusDays")?.let { a -> (0 until a.length()).map { a.getInt(it) }.toSet() } ?: d.focusDays,
+            focusStart = o.optInt("focusStart", d.focusStart),
+            focusEnd = o.optInt("focusEnd", d.focusEnd),
+            eveningMode = o.optBoolean("eveningMode", d.eveningMode),
+            eveningStart = o.optInt("eveningStart", d.eveningStart),
+            eveningEnd = o.optInt("eveningEnd", d.eveningEnd),
         )
     }
 
@@ -137,8 +223,30 @@ class SettingsStore(private val context: Context) {
         put("swipeDownBroken", s.swipeDownBroken)
         put("calendarWidgetId", s.calendarWidgetId)
         put("pinsDeduped", s.pinsDeduped)
+        put("searchEngine", s.searchEngine.name)
+        put("searchInBrave", s.searchInBrave)
+        put("searchShowsApps", s.searchShowsApps)
+        put("calculator", s.calculator)
+        put("drawerAutoLaunch", s.drawerAutoLaunch)
+        put("showRecent", s.showRecent)
+        put("nowPlaying", s.nowPlaying)
+        put("notificationDots", s.notificationDots)
+        put("tapActions", s.tapActions)
+        put("haptics", s.haptics)
+        put("swipeDownEnabled", s.swipeDownEnabled)
+        put("focusMode", s.focusMode.name)
+        put("focusApps", JSONArray(s.focusApps.toList()))
+        put("focusDays", JSONArray(s.focusDays.sorted()))
+        put("focusStart", s.focusStart)
+        put("focusEnd", s.focusEnd)
+        put("eveningMode", s.eveningMode)
+        put("eveningStart", s.eveningStart)
+        put("eveningEnd", s.eveningEnd)
     }
 }
+
+private inline fun <reified E : Enum<E>> enumOr(name: String, default: E): E =
+    runCatching { enumValueOf<E>(name) }.getOrDefault(default)
 
 private fun JSONArray?.strings(): List<String> =
     if (this == null) emptyList() else (0 until length()).map { getString(it) }

@@ -1,6 +1,16 @@
 package com.adrian.launcher
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.provider.AlarmClock
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import com.adrian.launcher.home.SpotlightConfig
+import com.adrian.launcher.system.NotificationState
+import com.adrian.launcher.ui.rememberNow
 import android.app.ActivityOptions
 import android.app.role.RoleManager
 import android.appwidget.AppWidgetManager
@@ -98,6 +108,12 @@ private const val REQUEST_WIDGET_CONFIGURE = 4711
 private const val BRAVE_PACKAGE = "com.brave.browser"
 private const val LENS_PACKAGE = "com.google.ar.lens"
 private const val GOOGLE_APP_PACKAGE = "com.google.android.googlequicksearchbox"
+private val EVENING_ACCENT = Color(0xFFFF6B4A)
+
+/** Used when vibrations are switched off in settings. */
+private object NoHaptics : HapticFeedback {
+    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) = Unit
+}
 
 class MainActivity : ComponentActivity() {
 
@@ -124,6 +140,9 @@ class MainActivity : ComponentActivity() {
     private val isDefaultHome = mutableStateOf(false)
     private val locationGranted = mutableStateOf(false)
     private val calendarGranted = mutableStateOf(false)
+    private val notificationAccess = mutableStateOf(false)
+    /** Mirrors the haptics setting for vibrations triggered outside Compose. */
+    private var hapticsEnabled = true
     private val nextEvent = mutableStateOf<CalendarEvent?>(null)
     private val weatherProblem = mutableStateOf<WeatherResult?>(null)
     private val weatherLoading = mutableStateOf(false)
@@ -193,17 +212,35 @@ class MainActivity : ComponentActivity() {
 
     @Composable
     private fun LauncherContent(settings: LauncherSettings) {
-        val accent = Color(settings.accent)
+        val now by rememberNow()
+        val evening = settings.eveningActive(now)
+        val focus = settings.focusActive(now)
+        // Evening swaps the accent for a warm red-orange.
+        val accent = if (evening) EVENING_ACCENT else Color(settings.accent)
         val apps = rawApps.value
+        hapticsEnabled = settings.haptics
+
+        val notifiedRaw by NotificationState.packages.collectAsState()
+        val playingRaw by NotificationState.nowPlaying.collectAsState()
+        val notified = if (settings.notificationDots) notifiedRaw else emptySet()
+        val playing = if (settings.nowPlaying) playingRaw else null
 
         val renamed = remember(apps, settings.renames) {
             apps.map { app -> settings.renames[app.key]?.let { app.copy(label = it) } ?: app }.sortedByLabel()
         }
         val byKey = remember(renamed) { renamed.associateBy { it.key } }
-        val visible = remember(renamed, settings.hidden) { renamed.filter { it.key !in settings.hidden } }
-        val pinned = remember(byKey, settings.pinned) { settings.pinned.mapNotNull { byKey[it] } }
-        val recent = remember(byKey, settings.lastLaunch) {
-            settings.lastLaunch.entries.sortedByDescending { it.value }.mapNotNull { byKey[it.key] }.take(4)
+        // Focus hides its apps from the home screen and drawer; search still finds them.
+        val focusHidden = if (focus) settings.focusApps else emptySet()
+        val visible = remember(renamed, settings.hidden, focusHidden) {
+            renamed.filter { it.key !in settings.hidden && it.key !in focusHidden }
+        }
+        val pinned = remember(byKey, settings.pinned, focusHidden) {
+            settings.pinned.filter { it !in focusHidden }.mapNotNull { byKey[it] }
+        }
+        val recent = remember(byKey, settings.lastLaunch, focusHidden, settings.showRecent) {
+            if (!settings.showRecent) emptyList()
+            else settings.lastLaunch.entries.sortedByDescending { it.value }
+                .filter { it.key !in focusHidden }.mapNotNull { byKey[it.key] }.take(4)
         }
         val weather = remember(settings.weatherCache) { WeatherNow.fromJson(settings.weatherCache) }
         val wallpaperBitmap by produceState<ImageBitmap?>(null, settings.wallpaperVersion) {
@@ -226,6 +263,9 @@ class MainActivity : ComponentActivity() {
         BackHandler(enabled = menuTarget != null) { menuApp.value = null }
 
         LauncherTheme(accent) {
+          CompositionLocalProvider(
+              LocalHapticFeedback provides if (settings.haptics) LocalHapticFeedback.current else NoHaptics,
+          ) {
             Box(Modifier.fillMaxSize()) {
                 HomeScreen(
                     accent = accent,
@@ -244,6 +284,18 @@ class MainActivity : ComponentActivity() {
                     resetSignal = resetSignal.intValue,
                     drawerProgress = { drawer.value },
                     enterProgress = { homeEnter.value },
+                    nowPlaying = playing,
+                    notified = notified,
+                    tapActions = settings.tapActions,
+                    focusActive = focus,
+                    evening = evening,
+                    spotlight = SpotlightConfig(
+                        apps = renamed,
+                        showApps = settings.searchShowsApps,
+                        calculator = settings.calculator,
+                        placeholder = "Szukaj w ${settings.searchEngine.title}",
+                        onCopy = ::copyToClipboard,
+                    ),
                     actions = HomeActions(
                         onLaunch = ::launchApp,
                         onAppLongPress = { menuApp.value = it },
@@ -254,9 +306,11 @@ class MainActivity : ComponentActivity() {
                         onOpenSettings = { settingsOpen.value = true },
                         onRequestDefault = ::requestDefaultHome,
                         onRequestCalendar = { calendarRequest.launch(Manifest.permission.READ_CALENDAR) },
-                        onWebSearch = ::searchBrave,
+                        onWebSearch = { q -> webSearch(q, settings) },
                         onCamera = ::openCamera,
                         onLens = ::openLens,
+                        onGallery = ::openGallery,
+                        onOpenAlarms = ::openAlarms,
                     ),
                 )
 
@@ -273,6 +327,8 @@ class MainActivity : ComponentActivity() {
                         onLaunch = ::launchApp,
                         onLongPress = { menuApp.value = it },
                         onClose = { closeDrawer() },
+                        notified = notified,
+                        autoLaunch = settings.drawerAutoLaunch,
                     )
                 }
 
@@ -290,6 +346,9 @@ class MainActivity : ComponentActivity() {
                             isDefaultHome = isDefaultHome.value,
                             locationGranted = locationGranted.value,
                             calendarGranted = calendarGranted.value,
+                            notificationAccess = notificationAccess.value,
+                            shortcutsAvailable = isDefaultHome.value && appsRepo.canReadShortcuts(),
+                            braveInstalled = packageInstalled(BRAVE_PACKAGE),
                             weatherLine = weatherStatusLine(weather),
                             monoIcons = apps.count { it.icon != null },
                             totalApps = apps.size,
@@ -309,6 +368,7 @@ class MainActivity : ComponentActivity() {
                             },
                             onRequestLocation = { locationRequest.launch(Manifest.permission.ACCESS_COARSE_LOCATION) },
                             onRequestCalendar = { calendarRequest.launch(Manifest.permission.READ_CALENDAR) },
+                            onRequestNotificationAccess = ::requestNotificationAccess,
                             onRefreshWeather = { refreshWeather(force = true) },
                             onRequestDefault = ::requestDefaultHome,
                             onChooseWidget = ::chooseCalendarWidget,
@@ -327,6 +387,17 @@ class MainActivity : ComponentActivity() {
                         pinnedFull = settings.pinned.size >= MAX_PINNED,
                         isHidden = menuTarget.key in settings.hidden,
                         accent = accent,
+                        shortcuts = remember(menuTarget.key) {
+                            appsRepo.shortcuts(menuTarget).map { sc ->
+                                val label = (sc.shortLabel ?: sc.longLabel ?: "").toString()
+                                label to {
+                                    menuApp.value = null
+                                    runCatching { appsRepo.startShortcut(sc) }
+                                        .onFailure { Toast.makeText(this@MainActivity, "Skrót niedostępny", Toast.LENGTH_SHORT).show() }
+                                    Unit
+                                }
+                            }.filter { it.first.isNotBlank() }
+                        },
                         actions = AppMenuActions(
                             onTogglePin = {
                                 updateSettings { s ->
@@ -378,6 +449,7 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+          }
         }
     }
 
@@ -608,7 +680,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openDrawer() {
-        if (drawer.targetValue < 1f) window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+        if (hapticsEnabled && drawer.targetValue < 1f) window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
         animate { drawer.animateTo(1f, Springs.soft()) }
     }
 
@@ -616,14 +688,46 @@ class MainActivity : ComponentActivity() {
         animate { if (animated) drawer.animateTo(0f, Springs.soft()) else drawer.snapTo(0f) }
     }
 
-    /** Brave Search results in the Brave app; any browser if Brave is not installed. */
-    private fun searchBrave(query: String) {
-        val uri = Uri.parse("https://search.brave.com/search?q=" + Uri.encode(query))
-        val brave = Intent(Intent.ACTION_VIEW, uri).setPackage(BRAVE_PACKAGE)
-        val ok = runCatching { startActivity(brave) }.isSuccess ||
-            runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }.isSuccess
+    /** Results from the chosen engine, in Brave when installed and wanted, else the default browser. */
+    private fun webSearch(query: String, settings: LauncherSettings) {
+        val uri = Uri.parse(settings.searchEngine.url(query))
+        val inBrave = settings.searchInBrave &&
+            runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(BRAVE_PACKAGE)) }.isSuccess
+        val ok = inBrave || runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri)) }.isSuccess
         if (!ok) Toast.makeText(this, "Brak przeglądarki do wyszukiwania", Toast.LENGTH_SHORT).show()
     }
+
+    private fun openGallery() {
+        val candidates = listOf(
+            "com.sec.android.gallery3d",
+            "com.google.android.apps.photos",
+        ).mapNotNull { packageManager.getLaunchIntentForPackage(it) } +
+            Intent.makeMainSelectorActivity(Intent.ACTION_MAIN, Intent.CATEGORY_APP_GALLERY)
+        val ok = candidates.any { runCatching { startActivity(it) }.isSuccess }
+        if (!ok) Toast.makeText(this, "Nie znalazłem galerii", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openAlarms() {
+        val ok = runCatching { startActivity(Intent(AlarmClock.ACTION_SHOW_ALARMS)) }.isSuccess
+        if (!ok) Toast.makeText(this, "Nie znalazłem budzików", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun copyToClipboard(text: String) {
+        val clipboard = getSystemService(ClipboardManager::class.java)
+        clipboard?.setPrimaryClip(ClipData.newPlainText("wynik", text))
+        // Android 13+ shows its own confirmation.
+    }
+
+    private fun requestNotificationAccess() {
+        val component = NotificationState.component(this).flattenToString()
+        val detail = Intent(Settings.ACTION_NOTIFICATION_LISTENER_DETAIL_SETTINGS)
+            .putExtra(Settings.EXTRA_NOTIFICATION_LISTENER_COMPONENT_NAME, component)
+        val ok = runCatching { startActivity(detail) }.isSuccess ||
+            runCatching { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }.isSuccess
+        if (!ok) Toast.makeText(this, "Nie udało się otworzyć ustawień powiadomień", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun packageInstalled(pkg: String): Boolean = packageManager.getLaunchIntentForPackage(pkg) != null
 
     private fun openCamera() {
         val ok = runCatching { startActivity(Intent(MediaStore.INTENT_ACTION_STILL_IMAGE_CAMERA)) }.isSuccess
@@ -641,7 +745,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun swipeDown(settings: LauncherSettings) {
-        if (settings.swipeDownBroken) return
+        if (!settings.swipeDownEnabled || settings.swipeDownBroken) return
         if (!SystemPanels.expandNotifications(this)) {
             updateSettings { it.copy(swipeDownBroken = true) }
             Toast.makeText(this, "Gest w dół nie działa na tym telefonie, wyłączam go", Toast.LENGTH_LONG).show()
@@ -653,6 +757,7 @@ class MainActivity : ComponentActivity() {
         isDefaultHome.value = roleManager?.isRoleHeld(RoleManager.ROLE_HOME) == true
         locationGranted.value = weatherRepo.hasLocationPermission()
         calendarGranted.value = calendarRepo.hasPermission()
+        notificationAccess.value = NotificationState.hasAccess(this)
         lifecycleScope.launch {
             nextEvent.value = withContext(Dispatchers.IO) { calendarRepo.nextEvent() }
         }

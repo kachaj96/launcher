@@ -39,6 +39,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import com.adrian.launcher.ui.Springs
+import com.adrian.launcher.ui.bouncyClick
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -56,9 +57,20 @@ data class WeatherHint(val text: String, val actionLabel: String? = null, val on
 
 /** Clock with today's date and the current weather underneath. */
 @Composable
-fun ClockWeatherPage(now: LocalDateTime, weather: WeatherNow?, hint: WeatherHint?) {
+fun ClockWeatherPage(
+    now: LocalDateTime,
+    weather: WeatherNow?,
+    hint: WeatherHint?,
+    /** Tap on the time (opens alarms); null = not tappable. */
+    onClockTap: (() -> Unit)? = null,
+    /** Tap on the weather (shows the hourly forecast); null = not tappable. */
+    onWeatherTap: (() -> Unit)? = null,
+) {
     Column(modifier = Modifier.padding(start = 28.dp, end = 28.dp, top = 32.dp)) {
-        Row(verticalAlignment = Alignment.Top) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = if (onClockTap != null) Modifier.bouncyClick(pressedScale = 0.97f) { onClockTap() } else Modifier,
+        ) {
             Text(
                 text = now.hour.toString(),
                 color = Ink,
@@ -94,7 +106,9 @@ fun ClockWeatherPage(now: LocalDateTime, weather: WeatherNow?, hint: WeatherHint
         )
 
         Spacer(Modifier.height(16.dp))
-        if (weather != null) {
+        if (weather != null) Column(
+            modifier = if (onWeatherTap != null) Modifier.bouncyClick(pressedScale = 0.97f) { onWeatherTap() } else Modifier,
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 WeatherGlyph(weather.code)
                 Spacer(Modifier.width(12.dp))
@@ -243,9 +257,9 @@ private fun weatherGlyphPath(code: Int): String = when (code) {
 }
 
 @Composable
-private fun WeatherGlyph(code: Int) {
+fun WeatherGlyph(code: Int, sizeDp: Int = 26) {
     val path = remember(code) { PathParser().parsePathString(weatherGlyphPath(code)).toPath() }
-    Canvas(modifier = Modifier.size(26.dp)) {
+    Canvas(modifier = Modifier.size(sizeDp.dp)) {
         val s = size.width / 24f
         scale(s, s, pivot = Offset.Zero) {
             drawPath(

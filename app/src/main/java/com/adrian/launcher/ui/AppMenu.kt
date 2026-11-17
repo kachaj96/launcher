@@ -51,6 +51,8 @@ fun AppMenu(
     pinnedFull: Boolean,
     isHidden: Boolean,
     accent: Color,
+    /** The app's own shortcuts ("Nowa karta incognito"), label to action. */
+    shortcuts: List<Pair<String, () -> Unit>>,
     actions: AppMenuActions,
 ) {
     // Pops in like an iOS context menu.
@@ -93,6 +95,11 @@ fun AppMenu(
             }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
 
+            if (shortcuts.isNotEmpty()) {
+                shortcuts.forEach { (label, run) -> MenuItem(label, Ink, run, bold = true) }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Line))
+            }
+
             when {
                 isPinned -> MenuItem("Odepnij z ekranu głównego", Ink, actions.onTogglePin)
                 pinnedFull -> MenuItem("Ekran główny pełny ($MAX_PINNED_LABEL)", Faint, null)
@@ -109,11 +116,13 @@ fun AppMenu(
 private const val MAX_PINNED_LABEL = "6 z 6"
 
 @Composable
-private fun MenuItem(label: String, color: Color, onClick: (() -> Unit)?) {
+private fun MenuItem(label: String, color: Color, onClick: (() -> Unit)?, bold: Boolean = false) {
     Text(
         text = label,
         color = color,
         fontSize = 15.sp,
+        fontWeight = if (bold) FontWeight.Medium else FontWeight.Normal,
+        maxLines = 1,
         modifier = Modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
