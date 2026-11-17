@@ -1,6 +1,8 @@
 package com.adrian.launcher.drawer
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -54,8 +56,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.adrian.launcher.data.AppEntry
 import com.adrian.launcher.data.foldForSearch
+import com.adrian.launcher.ui.AppIcon
+import com.adrian.launcher.ui.Chevron
 import com.adrian.launcher.ui.Faint
 import com.adrian.launcher.ui.Ink
+import com.adrian.launcher.ui.Outfit
 import com.adrian.launcher.ui.Quiet
 import kotlin.math.abs
 import kotlinx.coroutines.launch
@@ -75,18 +80,26 @@ private sealed interface DrawerRow {
 /** Minimum query length before a single match launches on its own, so the first typed letter never fires an app. */
 private const val AUTO_LAUNCH_MIN_CHARS = 2
 
+/**
+ * @param apps visible apps (hidden ones removed), already renamed and sorted
+ * @param searchPool every app including hidden ones, so search still finds them
+ * @param recent most recently launched apps, newest first
+ */
 @Composable
 fun AppDrawer(
     apps: List<AppEntry>,
+    searchPool: List<AppEntry>,
+    recent: List<AppEntry>,
     accent: Color,
     onLaunch: (AppEntry) -> Unit,
+    onLongPress: (AppEntry) -> Unit,
     onClose: () -> Unit,
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     val folded = query.trim().foldForSearch()
 
-    val results = remember(apps, folded) {
-        if (folded.isEmpty()) apps else apps.filter { it.searchKey.contains(folded) }
+    val results = remember(apps, searchPool, folded) {
+        if (folded.isEmpty()) apps else searchPool.filter { it.searchKey.contains(folded) }
     }
 
     // Grouped rows for the full list; a flat list while searching.
@@ -135,6 +148,9 @@ fun AppDrawer(
                     start = 28.dp, end = 64.dp, bottom = 32.dp,
                 ),
             ) {
+                if (folded.isEmpty() && recent.isNotEmpty()) {
+                    item(key = "recent") { RecentRow(recent, onLaunch, onLongPress) }
+                }
                 if (folded.isNotEmpty() && results.isEmpty()) {
                     item(key = "empty") {
                         Text(
@@ -148,7 +164,11 @@ fun AppDrawer(
                 items(rows, key = { it.key }) { row ->
                     when (row) {
                         is DrawerRow.Header -> SectionHeader(row.letter)
-                        is DrawerRow.App -> AppRow(row.app, onClick = { onLaunch(row.app) })
+                        is DrawerRow.App -> AppRow(
+                            app = row.app,
+                            onClick = { onLaunch(row.app) },
+                            onLongClick = { onLongPress(row.app) },
+                        )
                     }
                 }
             }
@@ -210,7 +230,7 @@ private fun SearchBar(
                 value = query,
                 onValueChange = onQueryChange,
                 singleLine = true,
-                textStyle = TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Light),
+                textStyle = TextStyle(color = Ink, fontSize = 17.sp, fontWeight = FontWeight.Light, fontFamily = Outfit),
                 cursorBrush = SolidColor(Ink),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                 keyboardActions = KeyboardActions(onGo = { onSubmit() }),
@@ -231,26 +251,58 @@ private fun SectionHeader(letter: String) {
     )
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AppRow(app: AppEntry, onClick: () -> Unit) {
+private fun AppRow(
+    app: AppEntry,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
             .height(48.dp)
-            .clickable(onClick = onClick),
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        // Letter placeholder; monochrome icons come in stage 2.
-        Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier
-                .size(20.dp)
-                .border(1.3.dp, Ink, CircleShape),
-        ) {
-            Text(app.section, color = Ink, fontSize = 10.sp, fontWeight = FontWeight.Medium)
-        }
+        AppIcon(app)
         Spacer(Modifier.width(18.dp))
         Text(app.label, color = Ink, fontSize = 16.sp, maxLines = 1)
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun RecentRow(
+    recent: List<AppEntry>,
+    onLaunch: (AppEntry) -> Unit,
+    onLongPress: (AppEntry) -> Unit,
+) {
+    Column(modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)) {
+        Text("OSTATNIO", color = Faint, fontSize = 11.sp, fontWeight = FontWeight.Medium, letterSpacing = 1.6.sp)
+        Row(modifier = Modifier.padding(top = 8.dp)) {
+            recent.forEach { app ->
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .combinedClickable(onClick = { onLaunch(app) }, onLongClick = { onLongPress(app) })
+                        .padding(vertical = 8.dp),
+                ) {
+                    AppIcon(app, size = 24.dp)
+                    Spacer(Modifier.height(8.dp))
+                    Text(app.label, color = Ink, fontSize = 12.sp, fontWeight = FontWeight.Light, maxLines = 1)
+                }
+            }
+            repeat(4 - recent.size) { Spacer(Modifier.weight(1f)) }
+        }
+        Box(
+            modifier = Modifier
+                .padding(top = 8.dp)
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(Color(0xFF262626)),
+        )
     }
 }
 
@@ -310,18 +362,5 @@ private fun AlphabetScrubber(
                 modifier = Modifier.offset(x = shift),
             )
         }
-    }
-}
-
-@Composable
-fun Chevron(pointsUp: Boolean, color: Color, modifier: Modifier = Modifier) {
-    androidx.compose.foundation.Canvas(modifier = modifier.size(22.dp)) {
-        val w = size.width
-        val h = size.height
-        val stroke = 1.6.dp.toPx()
-        val yTip = if (pointsUp) h * 0.375f else h * 0.625f
-        val yEnds = if (pointsUp) h * 0.625f else h * 0.375f
-        drawLine(color, Offset(w * 0.25f, yEnds), Offset(w * 0.5f, yTip), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
-        drawLine(color, Offset(w * 0.5f, yTip), Offset(w * 0.75f, yEnds), stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round)
     }
 }

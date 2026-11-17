@@ -1,6 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Weather (Open-Meteo) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- Next event on the day page -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+    <!-- Swipe down opens the notification shade -->
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
+    <!-- "Odinstaluj" in the app menu -->
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+
     <!-- Android 11+ package visibility: without this, LauncherApps hides most
          user-installed apps (e.g. Messenger) from the launcher. -->
     <queries>
