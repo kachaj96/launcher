@@ -123,6 +123,16 @@ Odstępstwa od planu:
 - Strzałka albo Enter otwiera `search.brave.com` w aplikacji Brave (`com.brave.browser`), a bez niej w domyślnej przeglądarce.
 - Ikona aparatu: stuknięcie otwiera Aparat, przytrzymanie Google Lens.
 
+## Wersja 1.1 (17 listopada 2026)
+
+- Ekran główny bez linii data/bateria; pogoda w 3 liniach. Stuknięcie w godzinę: budziki; w pogodę: prognoza 12 h.
+- Pasek wyszukiwania: silnik do wyboru (domyślnie Google), wyniki w Brave. Podczas pisania aplikacje i kalkulator nad paskiem (Spotlight), tło rozmyte. Aparat (przytrzymanie: Google Lens) i galeria.
+- Szuflada: wyszukiwarka na dole.
+- Teraz odtwarzane i kropki powiadomień: `system/NotificationService.kt` (dostęp do powiadomień, dla APK spoza Sklepu wymaga „ograniczonych ustawień”).
+- Skróty aplikacji w menu przytrzymania (tylko jako domyślny launcher).
+- Skupienie (wył./harmonogram/zawsze) ukrywa wybrane aplikacje z ekranu i szuflady. Tryb wieczorny przygasza ekran i zmienia akcent w podanych godzinach.
+- Ustawienia w kategoriach z podstronami.
+
 ## Etapy
 
 | Etap | Zakres | Odbiór na telefonie |

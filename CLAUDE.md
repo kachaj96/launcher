@@ -18,7 +18,7 @@ Minimalistyczny launcher na Androida (Samsung, Android 14-16), budowany etapami.
 - `home/`: ekran główny i strony karuzeli
 - `drawer/`: szuflada z alfabetem
 - `settings/`: ekran ustawień
-- `system/`: ukryte API (panel powiadomień przez refleksję)
+- `system/`: ukryte API (panel powiadomień przez refleksję), usługa powiadomień (multimedia, kropki)
 - `ui/`: kolory, font, wspólne komponenty, menu aplikacji
 
 Nakładki pełnoekranowe muszą mieć `Modifier.blockTouchesBelow()`, inaczej dotyk w pustym miejscu trafia do ekranu głównego pod spodem.
