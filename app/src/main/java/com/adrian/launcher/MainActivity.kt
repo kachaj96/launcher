@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.AndroidUiDispatcher
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.adrian.launcher.data.AppEntry
@@ -393,7 +394,7 @@ class MainActivity : ComponentActivity() {
         // Whatever took over the screen, come back to a closed drawer with the iOS zoom-out.
         returningFromApp = true
         closeDrawer(animated = false)
-        lifecycleScope.launch { homeEnter.snapTo(0f) }
+        animate { homeEnter.snapTo(0f) }
         super.onStop()
     }
 
@@ -401,7 +402,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         if (returningFromApp) {
             returningFromApp = false
-            lifecycleScope.launch { homeEnter.animateTo(1f, Springs.soft()) }
+            animate { homeEnter.animateTo(1f, Springs.soft()) }
         }
         refreshSystemState()
         refreshWeather(force = false)
@@ -556,13 +557,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Runs an Animatable change on the UI dispatcher that carries Compose's frame clock.
+     * Plain lifecycleScope has no MonotonicFrameClock, and animateTo throws there.
+     */
+    private fun animate(block: suspend () -> Unit) {
+        lifecycleScope.launch(AndroidUiDispatcher.Main) { block() }
+    }
+
     private fun drawerTravelPx(): Float = resources.displayMetrics.heightPixels * 0.55f
 
     /** Finger moved by [dy] px; up (negative) opens, down closes. */
     private fun dragDrawer(dy: Float) {
-        lifecycleScope.launch {
-            drawer.snapTo((drawer.value - dy / drawerTravelPx()).coerceIn(0f, 1f))
-        }
+        animate { drawer.snapTo((drawer.value - dy / drawerTravelPx()).coerceIn(0f, 1f)) }
     }
 
     /** Finger lifted: a quick flick decides, otherwise the position does. */
@@ -577,13 +584,11 @@ class MainActivity : ComponentActivity() {
 
     private fun openDrawer() {
         if (drawer.targetValue < 1f) window.decorView.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-        lifecycleScope.launch { drawer.animateTo(1f, Springs.soft()) }
+        animate { drawer.animateTo(1f, Springs.soft()) }
     }
 
     private fun closeDrawer(animated: Boolean = true) {
-        lifecycleScope.launch {
-            if (animated) drawer.animateTo(0f, Springs.soft()) else drawer.snapTo(0f)
-        }
+        animate { if (animated) drawer.animateTo(0f, Springs.soft()) else drawer.snapTo(0f) }
     }
 
     private fun swipeDown(settings: LauncherSettings) {
