@@ -1,4 +1,4 @@
-# Launcher Android - plan v1
+# Zenit (launcher Android) - plan v1
 
 Stan na 17 listopada 2026. Źródło: dokument „Launcher Android - plan v1” i mockup v1.
 
@@ -157,3 +157,9 @@ Odstępstwa od planu:
 | 5. Gesty | W górę, w dół z zabezpieczeniem, przytrzymanie | Wszystkie 3 działają, nieudany gest w dół nie powoduje błędu |
 | 6. Personalizacja | Menu aplikacji, ukrywanie, nazwy, ostatnio używane, akcent, ustawienia | Zmiany przetrwają restart telefonu |
 | 7. Szlif | Animacje, podpisany APK release, kopia zapasowa ustawień | Tydzień codziennego używania bez powrotu do One UI Home |
+
+## Wersja 1.4 (17 listopada 2026)
+
+- Nazwa i ikona: **Zenit**. Łuk drogi słońca nad cienkim horyzontem, kropka w kolorze akcentu w najwyższym punkcie. Wektor w `res/drawable/ic_launcher_foreground.xml` (mieści się w bezpiecznej strefie 66 dp), logo w `docs/zenit-logo.svg`. Nazwa pakietu bez zmian (`com.adrian.launcher`), żeby aktualizacja nie kasowała ustawień.
+- Pierścień ładowania: na czas jego wyświetlenia ekran główny łagodnie się rozmywa (do 14 dp) i przyciemnia, potem wraca.
+- Tapeta: po wyborze zdjęcia otwiera się edytor (szczypanie 1-5x, przesuwanie, suwak gradientu, podgląd zegara). „Ustaw” zapisuje wycięty kadr, „Anuluj” zostawia poprzednią tapetę. Oryginał zostaje w `wallpaper_src.jpg`, więc „Dopasuj” w ustawieniach można użyć później.

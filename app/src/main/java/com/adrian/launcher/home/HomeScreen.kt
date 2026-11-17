@@ -213,6 +213,18 @@ fun HomeScreen(
     }
 
     val blur by animateDpAsState(if (searchFocused || showHourly) 18.dp else 0.dp, Springs.soft(), label = "blur")
+
+    // Charging ring: the home screen softly blurs in under it and back out.
+    val ringAppear = remember { androidx.compose.animation.core.Animatable(0f) }
+    val ringSweep = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(chargingSignal) {
+        if (chargingSignal == 0 || !showChargingRing) return@LaunchedEffect
+        ringSweep.snapTo(0f)
+        launch { ringSweep.animateTo(battery / 100f, androidx.compose.animation.core.tween(900)) }
+        ringAppear.animateTo(1f, androidx.compose.animation.core.tween(450))
+        kotlinx.coroutines.delay(2200)
+        ringAppear.animateTo(0f, androidx.compose.animation.core.tween(600))
+    }
     val dim by animateFloatAsState(if (evening) 0.72f else 1f, Springs.soft(), label = "evening")
 
     Box(
@@ -245,8 +257,9 @@ fun HomeScreen(
                     val scale = (1f - 0.06f * d) * (0.94f + 0.06f * e)
                     scaleX = scale
                     scaleY = scale
-                    alpha = (1f - 0.7f * d) * (0.3f + 0.7f * e) * dim
-                    val r = blur.toPx()
+                    val ring = ringAppear.value
+                    alpha = (1f - 0.7f * d) * (0.3f + 0.7f * e) * dim * (1f - 0.35f * ring)
+                    val r = maxOf(blur.toPx(), (14 * ring).dp.toPx())
                     renderEffect = if (r > 0.5f) BlurEffect(r, r, TileMode.Decal) else null
                 },
         ) {
@@ -411,7 +424,7 @@ fun HomeScreen(
 
         HourlySheet(visible = showHourly, weather = weather, onDismiss = { showHourly = false })
 
-        if (showChargingRing) ChargingRing(chargingSignal, battery, accent)
+        ChargingRing(ringAppear.value, ringSweep.value, battery, accent)
     }
 }
 
@@ -876,28 +889,17 @@ private fun SuggestionsPanel(apps: List<AppEntry>, onLaunch: (AppEntry, Rect?) -
     }
 }
 
-/** Shown for a moment when the charger is plugged in: a thin ring filled to the battery level. */
+/** Thin ring filled to the battery level; [appear] and [sweep] are driven by the home screen. */
 @Composable
-private fun ChargingRing(signal: Int, battery: Int, accent: Color) {
-    if (signal == 0) return
-    val appear = remember { androidx.compose.animation.core.Animatable(0f) }
-    val sweep = remember { androidx.compose.animation.core.Animatable(0f) }
-    LaunchedEffect(signal) {
-        appear.snapTo(0f)
-        sweep.snapTo(0f)
-        launch { sweep.animateTo(battery / 100f, androidx.compose.animation.core.tween(900)) }
-        appear.animateTo(1f, Springs.soft())
-        kotlinx.coroutines.delay(2200)
-        appear.animateTo(0f, Springs.soft())
-    }
-    if (appear.value < 0.01f && sweep.value > 0f && !appear.isRunning) return
+private fun ChargingRing(appear: Float, sweep: Float, battery: Int, accent: Color) {
+    if (appear < 0.01f) return
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer {
-                alpha = appear.value.coerceIn(0f, 1f)
-                val sc = 0.85f + 0.15f * appear.value
+                alpha = appear.coerceIn(0f, 1f)
+                val sc = 0.85f + 0.15f * appear
                 scaleX = sc
                 scaleY = sc
             },
@@ -909,7 +911,7 @@ private fun ChargingRing(signal: Int, battery: Int, accent: Color) {
             val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
             drawArc(Color.White.copy(alpha = 0.12f), 0f, 360f, false, topLeft, arcSize,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
-            drawArc(accent, -90f, 360f * sweep.value, false, topLeft, arcSize,
+            drawArc(accent, -90f, 360f * sweep, false, topLeft, arcSize,
                 style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = androidx.compose.ui.graphics.StrokeCap.Round))
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {

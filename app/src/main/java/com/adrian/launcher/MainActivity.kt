@@ -146,6 +146,8 @@ class MainActivity : ComponentActivity() {
     private var returningFromApp = false
     private val settingsOpen = mutableStateOf(false)
     private val menuApp = mutableStateOf<AppEntry?>(null)
+    /** Full-size source photo while the wallpaper editor is open. */
+    private val wallpaperEdit = mutableStateOf<android.graphics.Bitmap?>(null)
     private val renameApp = mutableStateOf<AppEntry?>(null)
     private val isDefaultHome = mutableStateOf(false)
     private val locationGranted = mutableStateOf(false)
@@ -291,6 +293,7 @@ class MainActivity : ComponentActivity() {
         val drawerVisible by remember { derivedStateOf { drawer.value > 0f } }
         BackHandler(enabled = drawerVisible) { closeDrawer() }
         BackHandler(enabled = settingsOpen.value) { settingsOpen.value = false }
+        BackHandler(enabled = wallpaperEdit.value != null) { wallpaperEdit.value = null }
         BackHandler(enabled = menuTarget != null) { menuApp.value = null }
 
         LauncherTheme(accent) {
@@ -396,6 +399,7 @@ class MainActivity : ComponentActivity() {
                             onPickWallpaper = {
                                 wallpaperPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                             },
+                            onAdjustWallpaper = ::openWallpaperEditor,
                             onClearWallpaper = {
                                 wallpaper.clear()
                                 updateSettings { it.copy(wallpaperVersion = System.currentTimeMillis()) }
@@ -410,6 +414,18 @@ class MainActivity : ComponentActivity() {
                             onImport = { importPicker.launch(arrayOf("application/json", "text/plain", "*/*")) },
                             onClose = { settingsOpen.value = false },
                         ),
+                    )
+                }
+
+                val editSource = wallpaperEdit.value
+                if (editSource != null) {
+                    val image = remember(editSource) { editSource.asImageBitmap() }
+                    com.adrian.launcher.settings.WallpaperEditor(
+                        source = image,
+                        initialGradient = settings.gradient,
+                        accent = accent,
+                        onCancel = { wallpaperEdit.value = null },
+                        onAccept = { crop, gradient -> applyWallpaperCrop(editSource, crop, gradient) },
                     )
                 }
 
@@ -931,12 +947,28 @@ class MainActivity : ComponentActivity() {
 
     private fun saveWallpaper(uri: Uri) {
         lifecycleScope.launch {
-            val ok = withContext(Dispatchers.IO) { wallpaper.save(uri) }
-            if (ok) {
-                settingsStore.update { it.copy(wallpaperVersion = System.currentTimeMillis()) }
-            } else {
-                Toast.makeText(this@MainActivity, "Nie udało się wczytać zdjęcia", Toast.LENGTH_SHORT).show()
+            val source = withContext(Dispatchers.IO) {
+                if (wallpaper.saveSource(uri)) wallpaper.loadSource() else null
             }
+            if (source != null) wallpaperEdit.value = source
+            else Toast.makeText(this@MainActivity, "Nie udało się wczytać zdjęcia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun openWallpaperEditor() {
+        lifecycleScope.launch {
+            val source = withContext(Dispatchers.IO) { wallpaper.loadSource() }
+            if (source != null) wallpaperEdit.value = source
+            else Toast.makeText(this@MainActivity, "Brak oryginału, wybierz zdjęcie ponownie", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun applyWallpaperCrop(source: android.graphics.Bitmap, crop: android.graphics.Rect, gradient: Float) {
+        lifecycleScope.launch {
+            val ok = withContext(Dispatchers.IO) { wallpaper.applyCrop(source, crop) }
+            wallpaperEdit.value = null
+            if (ok) settingsStore.update { it.copy(gradient = gradient, wallpaperVersion = System.currentTimeMillis()) }
+            else Toast.makeText(this@MainActivity, "Nie udało się zapisać tapety", Toast.LENGTH_SHORT).show()
         }
     }
 

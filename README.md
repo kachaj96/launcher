@@ -1,6 +1,6 @@
-# Launcher
+# Zenit
 
-Minimalistyczny launcher na Androida. Plan: `docs/PLAN.md`, zasady dla Claude Code: `CLAUDE.md`.
+Zenit - minimalistyczny launcher na Androida. Logo: `docs/zenit-logo.svg`. Plan: `docs/PLAN.md`, zasady dla Claude Code: `CLAUDE.md`.
 
 ## Instalacja na telefonie
 

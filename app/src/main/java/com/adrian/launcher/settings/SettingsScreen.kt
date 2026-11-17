@@ -97,6 +97,8 @@ class SettingsActions(
     /** Saves a weather setting, then refetches with it. */
     val updateWeather: ((LauncherSettings) -> LauncherSettings) -> Unit,
     val onPickWallpaper: () -> Unit,
+    /** Opens the editor on the current photo. */
+    val onAdjustWallpaper: () -> Unit,
     val onClearWallpaper: () -> Unit,
     val onRequestLocation: () -> Unit,
     val onRequestCalendar: () -> Unit,
@@ -120,7 +122,7 @@ private enum class Page(val title: String, val subtitle: String) {
     GESTURES("Gesty i wibracje", "akcja dla każdego gestu, wibracje"),
     PERMISSIONS("Uprawnienia", "lokalizacja, kalendarz, powiadomienia"),
     BACKUP("Kopia ustawień", "eksport i import"),
-    ABOUT("O launcherze", "wersja, ikony"),
+    ABOUT("O Zenicie", "wersja, ikony"),
 }
 
 @Composable
@@ -231,8 +233,11 @@ private fun Ctx.LookPage(wallpaper: ImageBitmap?) {
         Spacer(Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Pill("Zmień zdjęcie", actions.onPickWallpaper)
-                if (wallpaper != null) Pill("Usuń", actions.onClearWallpaper)
+                Pill(if (wallpaper == null) "Wybierz zdjęcie" else "Zmień", actions.onPickWallpaper)
+                if (wallpaper != null) Pill("Dopasuj", actions.onAdjustWallpaper)
+            }
+            if (wallpaper != null) Row(modifier = Modifier.padding(top = 8.dp)) {
+                Pill("Usuń", actions.onClearWallpaper)
             }
             var gradient by remember(s.gradient) { mutableStateOf(s.gradient) }
             Text("Szerokość czerni: ${(gradient * 100).toInt()}%", color = Quiet, fontSize = 13.sp, modifier = Modifier.padding(top = 12.dp))
@@ -616,8 +621,8 @@ private fun Ctx.PermissionsPage() {
     StatusRow("Skróty aplikacji", status.shortcutsAvailable, actions.onRequestDefault)
     Hint(
         "Dostęp do powiadomień to osobna lista w ustawieniach telefonu (szukaj: „dostęp do powiadomień”), " +
-            "nie przełącznik „Zezwalaj na powiadomienia”. Jeśli przełącznik Launchera jest zablokowany: " +
-            "Ustawienia > Aplikacje > Launcher > ⋮ > Zezwól na ograniczone ustawienia, potem włącz go ponownie. " +
+            "nie przełącznik „Zezwalaj na powiadomienia”. Jeśli przełącznik Zenitu jest zablokowany: " +
+            "Ustawienia > Aplikacje > Zenit > ⋮ > Zezwól na ograniczone ustawienia, potem włącz go ponownie. " +
             "Skróty aplikacji działają tylko, gdy launcher jest domyślny.",
     )
 }
@@ -636,7 +641,8 @@ private fun Ctx.AboutPage() {
     Section("IKONY")
     Hint("Monochromatyczne: ${status.monoIcons} z ${status.totalApps}. Reszta dostaje literę w kółku.")
     Section("WERSJA")
-    Hint("Launcher ${status.version}")
+    Hint("Zenit ${status.version}")
+    Hint("Zegar, pogoda i propozycje według pory dnia. Nazwa od najwyższego punktu na drodze słońca.")
     Hint("Font Outfit, SIL Open Font License.")
 }
 

@@ -1,4 +1,4 @@
-# Launcher - instrukcje dla Claude Code
+# Zenit (launcher) - instrukcje dla Claude Code
 
 Minimalistyczny launcher na Androida (Samsung, Android 14-16), budowany etapami. Pełna specyfikacja: `docs/PLAN.md`. Przed każdym etapem przeczytaj odpowiedni wiersz tabeli etapów i jego kryterium odbioru.
 
